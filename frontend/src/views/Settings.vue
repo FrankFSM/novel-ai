@@ -124,7 +124,7 @@ const defaultSettings = {
   },
   api: {
     baseUrl: '/api/v1',
-    timeout: 30000
+    timeout: 1000 * 60 * 5
   },
   qa: {
     useRag: true,

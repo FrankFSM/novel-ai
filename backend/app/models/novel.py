@@ -4,14 +4,6 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 import uuid
 
-# 小说与章节的中间表
-novel_chapter = Table(
-    "novel_chapter",
-    Base.metadata,
-    Column("novel_id", Integer, ForeignKey("novels.id"), primary_key=True),
-    Column("chapter_id", Integer, ForeignKey("chapters.id"), primary_key=True),
-)
-
 class Novel(Base):
     """小说模型"""
     __tablename__ = "novels"
@@ -25,18 +17,19 @@ class Novel(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # 关系
-    chapters = relationship("Chapter", secondary=novel_chapter, back_populates="novels")
-    characters = relationship("Character", back_populates="novel")
-    locations = relationship("Location", back_populates="novel")
-    items = relationship("Item", back_populates="novel")
-    events = relationship("Event", back_populates="novel")
-    relationships = relationship("Relationship", back_populates="novel")
+    chapters = relationship("Chapter", back_populates="novel", cascade="all, delete-orphan")
+    characters = relationship("Character", back_populates="novel", cascade="all, delete-orphan")
+    locations = relationship("Location", back_populates="novel", cascade="all, delete-orphan")
+    items = relationship("Item", back_populates="novel", cascade="all, delete-orphan")
+    events = relationship("Event", back_populates="novel", cascade="all, delete-orphan")
+    relationships = relationship("Relationship", back_populates="novel", cascade="all, delete-orphan")
 
 class Chapter(Base):
     """章节模型"""
     __tablename__ = "chapters"
     
     id = Column(Integer, primary_key=True, index=True)
+    novel_id = Column(Integer, ForeignKey("novels.id", ondelete="CASCADE"), nullable=False)
     title = Column(String(255), nullable=False)
     content = Column(Text, nullable=False)
     number = Column(Integer, nullable=False)  # 章节序号
@@ -45,8 +38,8 @@ class Chapter(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # 关系
-    novels = relationship("Novel", secondary=novel_chapter, back_populates="chapters")
-    chunks = relationship("TextChunk", back_populates="chapter")
+    novel = relationship("Novel", back_populates="chapters")
+    chunks = relationship("TextChunk", back_populates="chapter", cascade="all, delete-orphan")
 
 class TextChunk(Base):
     """文本块模型（用于向量检索）"""

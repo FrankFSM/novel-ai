@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 import logging
 from fastapi import UploadFile
+import re
 
 from app.models import novel, schemas
 from app.core.openai_client import OpenAIClient
@@ -47,57 +48,38 @@ def delete_novel(db: Session, novel_id: int) -> None:
     db.commit()
 
 async def process_novel_file(db: Session, novel_id: int, file: UploadFile) -> None:
-    """处理上传的小说文件（示例实现）"""
+    """处理上传的小说文件"""
     try:
         # 读取文件内容
         content = await file.read()
         text = content.decode('utf-8')
         
-        # 简单地按行分割文本作为示例
-        lines = text.split('\n')
-        chapters = []
-        current_chapter = {"title": "", "content": []}
+        # 简单的章节分割（按"第X章"分割）
+        chapters = re.split(r'第[一二三四五六七八九十百千万\d]+章', text)
         
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-                
-            # 非常简单的章节检测（实际应用中需要更复杂的逻辑）
-            if line.startswith('第') and ('章' in line or '节' in line):
-                # 保存之前的章节
-                if current_chapter["title"] and current_chapter["content"]:
-                    chapters.append(current_chapter)
-                # 开始新章节
-                current_chapter = {"title": line, "content": []}
-            else:
-                current_chapter["content"].append(line)
+        if len(chapters) <= 1:
+            # 如果没有找到章节标记，将整个内容作为一个章节
+            chapters = [text]
         
-        # 不要忘记最后一章
-        if current_chapter["title"] and current_chapter["content"]:
-            chapters.append(current_chapter)
+        # 删除空白章节
+        chapters = [ch.strip() for ch in chapters if ch.strip()]
         
-        # 保存章节到数据库
-        for i, chapter_data in enumerate(chapters):
+        # 保存章节
+        for i, chapter_content in enumerate(chapters, 1):
             chapter = novel.Chapter(
-                title=chapter_data["title"],
-                content="\n".join(chapter_data["content"]),
-                number=i+1,
-                word_count=len("".join(chapter_data["content"]))
+                novel_id=novel_id,
+                title=f"第{i}章",
+                content=chapter_content,
+                number=i,
+                word_count=len(chapter_content)
             )
             db.add(chapter)
-            db.flush()  # 获取ID
-            
-            # 建立小说与章节的关联
-            db_novel = get_novel(db, novel_id)
-            db_novel.chapters.append(chapter)
         
         db.commit()
-        logger.info(f"成功处理小说文件，共导入{len(chapters)}章节")
         
     except Exception as e:
-        db.rollback()
         logger.error(f"处理小说文件失败: {str(e)}")
+        db.rollback()
         raise
 
 def get_novel_statistics(db: Session, novel_id: int) -> Dict[str, Any]:
@@ -188,4 +170,78 @@ def get_location(db: Session, location_id: int) -> Optional[novel.Location]:
 
 def get_item(db: Session, item_id: int) -> Optional[novel.Item]:
     """获取物品详情"""
-    return db.query(novel.Item).filter(novel.Item.id == item_id).first() 
+    return db.query(novel.Item).filter(novel.Item.id == item_id).first()
+
+def get_novel_chapters_content(db: Session, novel_id: int, limit: Optional[int] = None) -> str:
+    """获取小说章节内容
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        limit: 限制返回的章节数量，如果为None则返回所有章节
+        
+    Returns:
+        合并后的章节内容
+    """
+    # 获取小说
+    db_novel = get_novel(db, novel_id)
+    if not db_novel:
+        return ""
+        
+    # 查询章节，按章节序号排序
+    chapters = db.query(novel.Chapter).filter(
+        novel.Chapter.novel_id == novel_id
+    ).order_by(novel.Chapter.number)
+    
+    if limit:
+        chapters = chapters.limit(limit)
+    
+    chapters = chapters.all()
+    
+    if not chapters:
+        return ""
+    
+    # 合并章节内容
+    content_parts = []
+    for chapter in chapters:
+        content_parts.append(f"第{chapter.number}章 {chapter.title}\n\n")
+        content_parts.append(chapter.content)
+        content_parts.append("\n\n")  # 章节之间添加空行分隔
+    
+    return "".join(content_parts)
+
+async def process_novel_content(db: Session, novel_id: int, content: str) -> None:
+    """处理小说内容
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        content: 小说内容
+    """
+    try:
+        # 使用正则表达式找到所有章节标题和内容
+        chapter_pattern = r'(第[一二三四五六七八九十百千万\d]+章[^\n]*)\n(.*?)(?=\n第[一二三四五六七八九十百千万\d]+章|$)'
+        chapters = re.findall(chapter_pattern, content, re.DOTALL)
+        
+        if not chapters:
+            # 如果没有找到章节标记，将整个内容作为一个章节
+            chapters = [("第1章", content.strip())]
+        
+        # 保存章节
+        for i, (title, chapter_content) in enumerate(chapters, 1):
+            chapter = novel.Chapter(
+                novel_id=novel_id,
+                title=title.strip(),
+                content=chapter_content.strip(),
+                number=i,
+                word_count=len(chapter_content.strip())
+            )
+            db.add(chapter)
+        
+        db.commit()
+        logger.info(f"成功处理小说内容，共导入{len(chapters)}章节")
+        
+    except Exception as e:
+        logger.error(f"处理小说内容失败: {str(e)}")
+        db.rollback()
+        raise 

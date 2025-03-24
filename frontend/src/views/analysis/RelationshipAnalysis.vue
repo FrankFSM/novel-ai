@@ -241,15 +241,24 @@ const selectedNodeRelations = computed(() => {
 // 加载角色列表
 async function loadCharacters(novelId) {
   try {
-    // TODO: 实际项目中应从API获取
-    // const response = await novelApi.getNovelCharacters(novelId)
-    // characters.value = response.data
+    // 从API获取小说的角色列表
+    const response = await novelStore.fetchNovelDetail(novelId);
     
-    // 模拟数据
-    characters.value = generateMockCharacters()
+    // 如果返回了角色数据
+    if (response && response.characters) {
+      characters.value = response.characters;
+    } else {
+      // 如果没有角色数据，使用空数组
+      characters.value = [];
+      
+      // 通知用户可能需要先进行角色提取
+      if (characters.value.length === 0) {
+        ElMessage.info('该小说尚未提取角色数据，系统将在分析时自动提取');
+      }
+    }
   } catch (error) {
-    ElMessage.error('获取角色列表失败')
-    characters.value = []
+    ElMessage.error('获取角色列表失败');
+    characters.value = [];
   }
 }
 
@@ -283,86 +292,12 @@ async function generateGraph() {
   if (!selectedNovel.value) return
   
   try {
-    // 为了演示，不再调用后端API，改用模拟数据
-    // await analysisStore.fetchRelationshipGraph(
-    //   selectedNovel.value,
-    //   selectedCharacter.value,
-    //   graphDepth.value
-    // )
-    
-    // 使用模拟数据
-    const mockNodes = characters.value.map(character => ({
-      id: character.id,
-      name: character.name,
-      description: `${character.name}的角色描述`,
-      importance: Math.floor(Math.random() * 5) + 1
-    }));
-    
-    const mockEdges = [];
-    // 生成一些随机关系
-    const relationTypes = ['师徒', '朋友', '敌人', '亲人', '恋人', '同门'];
-    
-    // 为每个角色创建2-4个关系
-    mockNodes.forEach(node => {
-      const relationCount = Math.floor(Math.random() * 3) + 2;
-      for (let i = 0; i < relationCount; i++) {
-        // 随机选择另一个角色
-        let targetId;
-        do {
-          targetId = mockNodes[Math.floor(Math.random() * mockNodes.length)].id;
-        } while (targetId === node.id);
-        
-        // 随机选择关系类型
-        const relationType = relationTypes[Math.floor(Math.random() * relationTypes.length)];
-        
-        // 避免重复添加
-        const isExist = mockEdges.some(edge => 
-          (edge.source_id === node.id && edge.target_id === targetId) || 
-          (edge.source_id === targetId && edge.target_id === node.id)
-        );
-        
-        if (!isExist) {
-          mockEdges.push({
-            id: mockEdges.length + 1,
-            source_id: node.id,
-            target_id: targetId,
-            source_name: node.name,
-            target_name: mockNodes.find(n => n.id === targetId).name,
-            relation: relationType,
-            description: `${relationType}关系描述`
-          });
-        }
-      }
-    });
-    
-    // 过滤关系，如果选择了特定角色
-    let filteredNodes = [...mockNodes];
-    let filteredEdges = [...mockEdges];
-    
-    if (selectedCharacter.value) {
-      // 只保留与所选角色相关的边
-      filteredEdges = mockEdges.filter(edge => 
-        edge.source_id === selectedCharacter.value || 
-        edge.target_id === selectedCharacter.value
-      );
-      
-      // 只保留相关节点
-      const relatedNodeIds = new Set();
-      relatedNodeIds.add(selectedCharacter.value);
-      
-      filteredEdges.forEach(edge => {
-        relatedNodeIds.add(edge.source_id);
-        relatedNodeIds.add(edge.target_id);
-      });
-      
-      filteredNodes = mockNodes.filter(node => relatedNodeIds.has(node.id));
-    }
-    
-    // 设置关系图数据
-    analysisStore.relationshipGraph = {
-      nodes: filteredNodes,
-      edges: filteredEdges
-    };
+    // 调用后端API获取真实的关系网络数据
+    await analysisStore.fetchRelationshipGraph(
+      selectedNovel.value,
+      selectedCharacter.value,
+      graphDepth.value
+    )
     
     nextTick(() => {
       renderGraph()
@@ -427,7 +362,7 @@ function renderGraph() {
     target: edge.target_id,
     value: edge.relation,
     lineStyle: {
-      width: 2,
+      width: edge.importance ? edge.importance * 1 : 2,
       curveness: 0.2,
       color: getRelationColor(edge.relation)
     },
@@ -546,23 +481,6 @@ function getRelationColor(relationType) {
   }
   
   return colorMap[relationType] || '#909399'
-}
-
-// 生成模拟角色数据
-function generateMockCharacters() {
-  const count = 10
-  const characters = []
-  
-  const names = ['林远', '沈清雪', '张天志', '李墨', '王霜', '赵云', '钱多多', '孙小圣', '周天', '吴明']
-  
-  for (let i = 0; i < count; i++) {
-    characters.push({
-      id: i + 1,
-      name: names[i % names.length]
-    })
-  }
-  
-  return characters
 }
 </script>
 

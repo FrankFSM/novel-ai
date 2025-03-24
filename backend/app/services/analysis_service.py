@@ -4,113 +4,61 @@ import logging
 import networkx as nx
 
 from app.models import novel, schemas
+from app.services import novel_service
+from app.core.openai_client import OpenAIClient
 
 logger = logging.getLogger(__name__)
 
-def get_relationship_graph(
-    db: Session, 
-    novel_id: int, 
+async def get_relationship_graph(
+    db: Session,
+    novel_id: int,
     character_id: Optional[int] = None,
-    depth: int = 1
-) -> schemas.RelationshipGraphResponse:
-    """获取关系网络图"""
-    # 创建一个图
-    G = nx.Graph()
+    depth: int = 2
+) -> Dict[str, Any]:
+    """获取小说人物关系图
     
-    # 查询关系
-    query = db.query(novel.Relationship).filter(novel.Relationship.novel_id == novel_id)
-    
-    if character_id:
-        # 如果指定了角色，只获取与该角色相关的关系
-        query = query.filter(
-            (novel.Relationship.from_character_id == character_id) | 
-            (novel.Relationship.to_character_id == character_id)
-        )
-    
-    relationships = query.all()
-    
-    # 角色ID集合，用于获取角色信息
-    character_ids = set()
-    
-    # 添加节点和边
-    for rel in relationships:
-        character_ids.add(rel.from_character_id)
-        character_ids.add(rel.to_character_id)
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        character_id: 可选的中心角色ID
+        depth: 关系网络深度
         
-        # 添加边，带上关系类型
-        G.add_edge(
-            rel.from_character_id, 
-            rel.to_character_id, 
-            type=rel.relation_type, 
-            desc=rel.description
-        )
+    Returns:
+        包含节点和边的字典
+    """
+    # 获取小说
+    novel = novel_service.get_novel(db=db, novel_id=novel_id)
+    if not novel:
+        raise ValueError("小说不存在")
+        
+    # 获取小说内容（从章节中）
+    content = novel_service.get_novel_chapters_content(db=db, novel_id=novel_id)
+    if not content:
+        raise ValueError("小说内容为空")
     
-    # 如果需要扩展深度
-    if depth > 1 and character_id:
-        current_nodes = set(G.nodes())
-        for _ in range(depth - 1):
-            new_nodes = set()
-            for node in current_nodes:
-                # 查询与当前节点相关的其他关系
-                relations = db.query(novel.Relationship).filter(
-                    novel.Relationship.novel_id == novel_id,
-                    ((novel.Relationship.from_character_id == node) |
-                     (novel.Relationship.to_character_id == node)),
-                    ~((novel.Relationship.from_character_id.in_(character_ids)) &
-                      (novel.Relationship.to_character_id.in_(character_ids)))
-                ).all()
+    # 调用OpenAI API提取人物关系
+    try:
+        relationship_data = await OpenAIClient.extract_character_relationships(content)
+        
+        # 如果指定了中心角色，过滤关系图
+        if character_id:
+            character = novel_service.get_character(db=db, character_id=character_id)
+            if not character:
+                raise ValueError("指定的角色不存在")
                 
-                for rel in relations:
-                    character_ids.add(rel.from_character_id)
-                    character_ids.add(rel.to_character_id)
-                    if rel.from_character_id not in G.nodes():
-                        new_nodes.add(rel.from_character_id)
-                    if rel.to_character_id not in G.nodes():
-                        new_nodes.add(rel.to_character_id)
-                    G.add_edge(
-                        rel.from_character_id, 
-                        rel.to_character_id, 
-                        type=rel.relation_type, 
-                        desc=rel.description
-                    )
-            current_nodes = new_nodes
-            if not current_nodes:
-                break
-    
-    # 获取角色信息
-    characters = db.query(novel.Character).filter(
-        novel.Character.id.in_(character_ids)
-    ).all()
-    
-    # 角色信息字典，用于构建结果
-    character_dict = {c.id: c for c in characters}
-    
-    # 构建节点列表
-    nodes = []
-    for char_id in G.nodes():
-        char = character_dict.get(char_id)
-        if char:
-            nodes.append({
-                "id": char.id,
-                "name": char.name,
-                "description": char.description,
-                "alias": char.alias
-            })
-    
-    # 构建边列表
-    edges = []
-    for from_id, to_id, data in G.edges(data=True):
-        edges.append({
-            "source": from_id,
-            "target": to_id,
-            "type": data.get("type"),
-            "description": data.get("desc")
-        })
-    
-    return {
-        "nodes": nodes,
-        "edges": edges
-    }
+            # 过滤出与中心角色相关的节点和边
+            filtered_data = filter_relationship_graph(
+                graph_data=relationship_data,
+                center_name=character.name,
+                depth=depth
+            )
+            return filtered_data
+            
+        return relationship_data
+        
+    except Exception as e:
+        logger.error(f"提取人物关系失败: {str(e)}")
+        raise
 
 def get_timeline(
     db: Session, 
@@ -488,4 +436,63 @@ def get_location_events(db: Session, novel_id: int, location_id: int) -> Dict[st
         },
         "events": event_timeline,
         "characters": character_details,
+    }
+
+def filter_relationship_graph(
+    graph_data: Dict[str, Any],
+    center_name: str,
+    depth: int = 2
+) -> Dict[str, Any]:
+    """根据中心角色和深度过滤关系图
+    
+    Args:
+        graph_data: 原始关系图数据
+        center_name: 中心角色名称
+        depth: 关系网络深度
+        
+    Returns:
+        过滤后的关系图数据
+    """
+    # 首先找到中心角色的节点ID
+    center_id = None
+    for node in graph_data["nodes"]:
+        if node["name"] == center_name:
+            center_id = node["id"]
+            break
+    
+    if not center_id:
+        return graph_data  # 如果找不到中心角色，返回原始数据
+    
+    # 使用BFS找到指定深度内的所有相关节点
+    related_nodes = {center_id}
+    current_depth = 0
+    current_layer = {center_id}
+    
+    while current_depth < depth and current_layer:
+        next_layer = set()
+        for edge in graph_data["edges"]:
+            if edge["source_id"] in current_layer:
+                next_layer.add(edge["target_id"])
+            if edge["target_id"] in current_layer:
+                next_layer.add(edge["source_id"])
+        
+        current_layer = next_layer - related_nodes
+        related_nodes.update(current_layer)
+        current_depth += 1
+    
+    # 过滤节点
+    filtered_nodes = [
+        node for node in graph_data["nodes"]
+        if node["id"] in related_nodes
+    ]
+    
+    # 过滤边
+    filtered_edges = [
+        edge for edge in graph_data["edges"]
+        if edge["source_id"] in related_nodes and edge["target_id"] in related_nodes
+    ]
+    
+    return {
+        "nodes": filtered_nodes,
+        "edges": filtered_edges
     } 

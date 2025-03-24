@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import logging
+from typing import Dict, Any
 
 from app.core.database import get_db
 from app.models import schemas
 from app.services import analysis_service, novel_service
+from app.core.openai_client import OpenAIClient
+from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -20,24 +23,24 @@ async def get_relationship_graph(
     if not novel:
         raise HTTPException(status_code=404, detail="小说不存在")
     
-    # 如果指定了角色，检查角色是否存在
+    # 如果指定了角色ID，检查角色是否存在
     if data.character_id:
         character = novel_service.get_character(db=db, character_id=data.character_id)
         if not character:
             raise HTTPException(status_code=404, detail="角色不存在")
     
+    # 调用分析服务获取关系网络图
     try:
-        # 获取关系图数据
-        graph_data = analysis_service.get_relationship_graph(
-            db=db,
+        result = await analysis_service.get_relationship_graph(
+            db=db, 
             novel_id=data.novel_id,
             character_id=data.character_id,
             depth=data.depth
         )
-        return graph_data
+        return result
     except Exception as e:
-        logger.error(f"获取关系图失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取关系图失败: {str(e)}")
+        logger.error(f"获取关系网络图失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取关系网络图失败: {str(e)}")
 
 @router.post("/timeline", response_model=schemas.TimelineResponse)
 async def get_timeline(
@@ -155,4 +158,10 @@ async def get_location_events(
         return events_data
     except Exception as e:
         logger.error(f"获取地点事件失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取地点事件失败: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"获取地点事件失败: {str(e)}")
+
+@router.get("/api-status", response_model=Dict[str, Any])
+async def check_api_status():
+    """检查OpenAI API的连接状态"""
+    results = OpenAIClient.check_api_connectivity()
+    return results 

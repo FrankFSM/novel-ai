@@ -26,9 +26,10 @@ class Settings(BaseSettings):
     MILVUS_PORT: int = int(os.getenv("MILVUS_PORT", 19530))
     
     # OpenAI配置
-    OPENAI_API_KEY: str = "sk-icxXNDdO3E6Y6FO6l8A7uuCu6hs4HE6XGHjkG5aCq6QjQZ8k"
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     OPENAI_API_BASE: str = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
-    OPENAI_API_MODEL: str = "deepseek-r1"
+    OPENAI_API_MODEL: str = os.getenv("OPENAI_API_MODEL", "gpt-3.5-turbo")
+    USE_MOCK_DATA: bool = os.getenv("USE_MOCK_DATA", "false").lower() in ("true", "1", "t")
     
     # 小说处理配置
     CHUNK_SIZE: int = 1000  # 文本分块大小

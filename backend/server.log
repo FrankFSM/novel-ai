@@ -1,0 +1,4 @@
+2025-03-24 12:49:19,543 - app.core.init_app - INFO - 日志系统初始化完成
+2025-03-24 12:49:19,543 - app.core.init_app - INFO - 开发模式：跳过向量数据库初始化
+INFO:     Will watch for changes in these directories: ['/Users/ralaphao/Github/novel-ai/novel-ai/backend']
+ERROR:    [Errno 48] Address already in use

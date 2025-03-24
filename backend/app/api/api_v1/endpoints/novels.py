@@ -94,17 +94,16 @@ async def upload_novel_file(
         )
         db_novel = novel_service.create_novel(db=db, novel_data=novel_data)
         
-        # 后台任务处理文件解析和导入
-        background_tasks.add_task(
-            novel_service.process_novel_file,
-            db=db,
-            novel_id=db_novel.id,
-            file=file
-        )
+        # 读取文件内容
+        content = await file.read()
+        text = content.decode('utf-8')
+        
+        # 直接处理文件内容
+        await novel_service.process_novel_content(db=db, novel_id=db_novel.id, content=text)
         
         return {
             "novel_id": db_novel.id,
-            "message": "小说文件上传成功，正在后台处理"
+            "message": "小说文件上传成功"
         }
     except Exception as e:
         logger.error(f"小说文件上传失败: {str(e)}")

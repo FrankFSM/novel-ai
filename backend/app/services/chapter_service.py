@@ -10,7 +10,9 @@ def get_chapter(db: Session, chapter_id: int) -> Optional[Chapter]:
 
 def get_chapters_by_novel_id(db: Session, novel_id: int, skip: int = 0, limit: int = 100) -> List[Chapter]:
     """获取指定小说的所有章节"""
-    return db.query(Chapter).filter(Chapter.novel_id == novel_id).offset(skip).limit(limit).all()
+    return db.query(Chapter).filter(
+        Chapter.novel_id == novel_id
+    ).order_by(Chapter.number).offset(skip).limit(limit).all()
 
 def create_chapter(db: Session, obj_in: ChapterCreate) -> Chapter:
     """创建新章节"""
@@ -18,7 +20,7 @@ def create_chapter(db: Session, obj_in: ChapterCreate) -> Chapter:
         novel_id=obj_in.novel_id,
         title=obj_in.title,
         content=obj_in.content,
-        chapter_number=obj_in.chapter_number,
+        number=obj_in.number,
         word_count=obj_in.word_count
     )
     db.add(db_obj)
@@ -43,6 +45,7 @@ def update_chapter(db: Session, db_obj: Chapter, obj_in: Union[ChapterUpdate, Di
 
 def delete_chapter(db: Session, chapter_id: int) -> None:
     """删除章节"""
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-    db.delete(chapter)
-    db.commit() 
+    chapter = get_chapter(db, chapter_id)
+    if chapter:
+        db.delete(chapter)
+        db.commit() 
