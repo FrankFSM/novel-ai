@@ -32,8 +32,8 @@ async def get_relationship_graph(
     logger.info(f"请求关系图: novel_id={novel_id}, character_id={character_id}, depth={depth}, force_refresh={force_refresh}")
     
     # 获取小说
-    novel = novel_service.get_novel(db=db, novel_id=novel_id)
-    if not novel:
+    novel_obj = novel_service.get_novel(db=db, novel_id=novel_id)
+    if not novel_obj:
         raise ValueError("小说不存在")
     
     # 如果不是强制刷新，尝试从数据库获取缓存的关系图
@@ -46,42 +46,195 @@ async def get_relationship_graph(
     else:
         logger.info(f"强制刷新模式，跳过缓存检查 (force_refresh={force_refresh})")
     
-    # 获取小说内容（从章节中）
-    logger.info(f"未找到缓存或强制刷新，开始生成新的关系图...")
-    content = novel_service.get_novel_chapters_content(db=db, novel_id=novel_id)
-    if not content:
-        raise ValueError("小说内容为空")
+    # 获取小说中已分析的角色列表
+    characters = db.query(novel.Character).filter(
+        novel.Character.novel_id == novel_id
+    ).all()
     
-    # 调用OpenAI API提取人物关系
-    try:
-        relationship_data = await OpenAIClient.extract_character_relationships(content)
+    logger.info(f"找到小说中已分析的角色: {len(characters)}个")
+    
+    if not characters:
+        logger.warning("小说中没有已分析的角色，无法生成关系网络")
+        return {"nodes": [], "edges": []}
+    
+    # 构建角色节点映射
+    nodes = []
+    character_map = {}
+    for i, char in enumerate(characters):
+        node_id = i + 1  # 确保节点ID从1开始
+        character_map[char.name] = {
+            "id": node_id,
+            "character_id": char.id,
+            "importance": char.importance or 1
+        }
         
-        # 如果指定了中心角色，过滤关系图
-        if character_id:
-            character = novel_service.get_character(db=db, character_id=character_id)
-            if not character:
-                raise ValueError("指定的角色不存在")
-                
-            # 过滤出与中心角色相关的节点和边
-            filtered_data = filter_relationship_graph(
-                graph_data=relationship_data,
-                center_name=character.name,
-                depth=depth
+        # 创建节点
+        nodes.append({
+            "id": node_id,
+            "name": char.name,
+            "value": 10 + (char.importance or 1) * 5,  # 基于重要性调整节点大小
+            "character_id": char.id,
+            "importance": char.importance or 1
+        })
+    
+    # 获取现有的关系数据
+    existing_relationships = db.query(novel.Relationship).filter(
+        novel.Relationship.novel_id == novel_id
+    ).all()
+    
+    logger.info(f"找到现有关系数据: {len(existing_relationships)}条")
+    
+    # 从现有关系构建边
+    edges = []
+    edge_id = 1
+    processed_pairs = set()  # 用于跟踪已处理的角色对
+    
+    for rel in existing_relationships:
+        from_char = db.query(novel.Character).filter(
+            novel.Character.id == rel.from_character_id
+        ).first()
+        
+        to_char = db.query(novel.Character).filter(
+            novel.Character.id == rel.to_character_id
+        ).first()
+        
+        if from_char and to_char and from_char.name in character_map and to_char.name in character_map:
+            # 创建一个唯一标识符来避免重复边
+            pair_key = f"{min(from_char.id, to_char.id)}-{max(from_char.id, to_char.id)}"
+            if pair_key in processed_pairs:
+                continue
+            
+            processed_pairs.add(pair_key)
+            
+            source_id = character_map[from_char.name]["id"]
+            target_id = character_map[to_char.name]["id"]
+            
+            # 根据角色重要性计算关系重要性
+            importance = 0.5 + (from_char.importance or 1) * 0.1 + (to_char.importance or 1) * 0.1
+            
+            edges.append({
+                "id": edge_id,
+                "source_id": source_id,
+                "target_id": target_id,
+                "source_name": from_char.name,
+                "target_name": to_char.name,
+                "relation": rel.relation_type,
+                "description": rel.description,
+                "importance": min(1.0, importance)  # 确保不超过1.0
+            })
+            edge_id += 1
+    
+    # 如果关系数据不足，使用OpenAI补充分析
+    if len(edges) < len(characters) * 0.5:  # 如果关系数少于角色数的一半，则需要额外分析
+        logger.info("现有关系数据不足，使用OpenAI补充分析")
+        
+        # 获取小说内容
+        content = novel_service.get_novel_chapters_content(db=db, novel_id=novel_id)
+        if not content:
+            raise ValueError("小说内容为空")
+        
+        try:
+            # 构建角色列表作为提示
+            character_names = [char.name for char in characters if char.importance and char.importance >= 2]
+            # 限制角色数量以避免提示太长
+            if len(character_names) > 20:
+                character_names = character_names[:20]
+            
+            character_list = ", ".join(character_names)
+            
+            # 调用OpenAI API提取已知角色之间的关系
+            extracted_relationships = await OpenAIClient.extract_character_relationships_from_list(
+                content, character_list
             )
             
-            # 保存到数据库
-            save_relationship_graph(db, novel_id, character_id, depth, filtered_data)
+            # 合并提取的关系
+            for rel in extracted_relationships.get("edges", []):
+                source_name = rel.get("source_name")
+                target_name = rel.get("target_name")
+                
+                if source_name in character_map and target_name in character_map:
+                    # 检查是否已存在这对角色的关系
+                    pair_exists = False
+                    for existing_edge in edges:
+                        if (existing_edge["source_name"] == source_name and existing_edge["target_name"] == target_name) or \
+                           (existing_edge["source_name"] == target_name and existing_edge["target_name"] == source_name):
+                            pair_exists = True
+                            break
+                    
+                    if not pair_exists:
+                        source_id = character_map[source_name]["id"]
+                        target_id = character_map[target_name]["id"]
+                        
+                        edges.append({
+                            "id": edge_id,
+                            "source_id": source_id,
+                            "target_id": target_id,
+                            "source_name": source_name,
+                            "target_name": target_name,
+                            "relation": rel.get("relation", "关系未知"),
+                            "description": rel.get("description", ""),
+                            "importance": rel.get("importance", 0.5)
+                        })
+                        edge_id += 1
             
-            return filtered_data
+            # 添加关系到数据库
+            for edge in edges:
+                if edge.get("id") > len(existing_relationships):  # 只添加新的关系
+                    source_char_id = character_map[edge["source_name"]]["character_id"]
+                    target_char_id = character_map[edge["target_name"]]["character_id"]
+                    
+                    # 检查关系是否已存在
+                    existing = db.query(novel.Relationship).filter(
+                        novel.Relationship.novel_id == novel_id,
+                        novel.Relationship.from_character_id == source_char_id,
+                        novel.Relationship.to_character_id == target_char_id
+                    ).first()
+                    
+                    if not existing:
+                        new_relationship = novel.Relationship(
+                            novel_id=novel_id,
+                            from_character_id=source_char_id,
+                            to_character_id=target_char_id,
+                            relation_type=edge["relation"],
+                            description=edge["description"]
+                        )
+                        db.add(new_relationship)
+            
+            db.commit()
+            logger.info(f"添加了新的角色关系到数据库")
+                
+        except Exception as e:
+            logger.error(f"使用OpenAI提取角色关系失败: {str(e)}")
+            # 即使OpenAI分析失败，我们仍然返回已有的关系数据
+    
+    # 汇总关系图数据
+    relationship_data = {
+        "nodes": nodes,
+        "edges": edges
+    }
+    
+    # 如果指定了中心角色，过滤关系图
+    if character_id:
+        character = novel_service.get_character(db=db, character_id=character_id)
+        if not character:
+            raise ValueError("指定的角色不存在")
+            
+        # 过滤出与中心角色相关的节点和边
+        filtered_data = filter_relationship_graph(
+            graph_data=relationship_data,
+            center_name=character.name,
+            depth=depth
+        )
         
         # 保存到数据库
-        save_relationship_graph(db, novel_id, None, depth, relationship_data)
+        save_relationship_graph(db, novel_id, character_id, depth, filtered_data)
         
-        return relationship_data
-        
-    except Exception as e:
-        logger.error(f"提取人物关系失败: {str(e)}")
-        raise
+        return filtered_data
+    
+    # 保存到数据库
+    save_relationship_graph(db, novel_id, None, depth, relationship_data)
+    
+    return relationship_data
 
 def get_cached_relationship_graph(
     db: Session,
@@ -330,7 +483,10 @@ def get_character_journey(db: Session, novel_id: int, character_id: int) -> Dict
                 "name": other_character.name,
                 "relation_type": rel.relation_type,
                 "description": rel.description,
-                "direction": "outgoing"
+                "direction": "outgoing",
+                "importance": other_character.importance or 1,
+                "first_chapter": rel.first_chapter_id,
+                "strength": 0.5 + (other_character.importance or 1) * 0.1  # 根据角色重要性计算关系强度
             })
     
     for rel in to_relationships:
@@ -344,39 +500,113 @@ def get_character_journey(db: Session, novel_id: int, character_id: int) -> Dict
                 "name": other_character.name,
                 "relation_type": rel.relation_type,
                 "description": rel.description,
-                "direction": "incoming"
+                "direction": "incoming",
+                "importance": other_character.importance or 1,
+                "first_chapter": rel.first_chapter_id,
+                "strength": 0.5 + (other_character.importance or 1) * 0.1  # 根据角色重要性计算关系强度
             })
     
-    # 分析角色旅程的阶段（简化版）
+    # 分析角色旅程的阶段
     stages = []
-    current_stage = None
     
     if events:
-        # 简单地以每10个事件为一个阶段
-        stage_size = max(1, len(events) // 5)  # 最多5个阶段
+        # 计算出场章节数量和相关事件数量
+        chapters_involved = set()
+        for event in events:
+            if event.chapter_id:
+                chapters_involved.add(event.chapter_id)
         
-        for i in range(0, len(events), stage_size):
-            stage_events = events[i:i+stage_size]
-            if stage_events:
+        # 将事件分段（根据事件的数量确定阶段数）
+        stage_count = min(5, max(2, len(events) // 5))  # 至少2个阶段，最多5个阶段
+        stage_size = max(1, len(events) // stage_count)
+        
+        # 生成各个阶段
+        stage_names = ["初登场", "成长", "转折", "挑战", "高潮"]
+        
+        for i in range(0, min(stage_count, len(stage_names))):
+            start_idx = i * stage_size
+            end_idx = min(len(events), (i + 1) * stage_size - 1)
+            
+            if start_idx <= end_idx:
+                stage_events = events[start_idx:end_idx+1]
                 first_event = stage_events[0]
                 last_event = stage_events[-1]
                 
+                # 计算阶段关键事件（重要性>=3的事件）
+                key_events = [
+                    {
+                        "event_id": e.id,
+                        "name": e.name,
+                        "description": e.description,
+                        "chapter_id": e.chapter_id,
+                        "importance": e.importance,
+                        "time_description": e.time_description
+                    } for e in stage_events if e.importance >= 3
+                ]
+                
+                # 如果没有重要事件，则选取最重要的一个事件
+                if not key_events and stage_events:
+                    most_important = max(stage_events, key=lambda e: e.importance)
+                    key_events = [{
+                        "event_id": most_important.id,
+                        "name": most_important.name,
+                        "description": most_important.description,
+                        "chapter_id": most_important.chapter_id,
+                        "importance": most_important.importance,
+                        "time_description": most_important.time_description
+                    }]
+                
                 stage = {
-                    "title": f"第{len(stages)+1}阶段",
+                    "name": stage_names[i],
+                    "title": f"第{i+1}阶段: {stage_names[i]}",
                     "description": f"从「{first_event.name}」到「{last_event.name}」",
                     "start_chapter": first_event.chapter_id,
                     "end_chapter": last_event.chapter_id,
-                    "key_events": [
-                        {
-                            "event_id": e.id,
-                            "name": e.name,
-                            "description": e.description,
-                            "chapter_id": e.chapter_id,
-                            "importance": e.importance
-                        } for e in stage_events if e.importance >= 3  # 只包括重要事件
-                    ]
+                    "key_events": key_events
                 }
                 stages.append(stage)
+    
+    # 生成情感变化分析
+    emotions = []
+    if events:
+        # 简单模拟情感变化（实际项目可能需要NLP模型分析）
+        # 这里我们根据事件重要性和描述简单生成
+        chapter_emotions = {}
+        
+        for event in events:
+            if event.chapter_id:
+                emotion_value = min(10, max(0, 5 + (event.importance - 3) * 2))  # 1-5情绪值
+                
+                # 如果描述中有负面词，调整情绪值为负向
+                negative_words = ['死亡', '失败', '悲伤', '愤怒', '失去', '背叛', '伤害']
+                for word in negative_words:
+                    if event.description and word in event.description:
+                        emotion_value = max(0, emotion_value - 4)
+                        break
+                
+                if event.chapter_id in chapter_emotions:
+                    chapter_emotions[event.chapter_id].append(emotion_value)
+                else:
+                    chapter_emotions[event.chapter_id] = [emotion_value]
+        
+        # 对每个章节取平均情感值
+        for chapter_id, values in sorted(chapter_emotions.items()):
+            emotions.append({
+                "chapter_id": chapter_id,
+                "value": sum(values) / len(values)
+            })
+    
+    # 计算统计数据
+    stats = {
+        "chapters_count": len(set(e.chapter_id for e in events if e.chapter_id)),
+        "events_count": len(events),
+        "relationships_count": len(relationships),
+        "key_events_count": sum(len(stage["key_events"]) for stage in stages),
+        "emotion_avg": round(sum(e["value"] for e in emotions) / len(emotions), 2) if emotions else 0
+    }
+    
+    # 生成角色旅程总结（简单版）
+    journey_summary = f"{character.name}的旅程共经历了{stats['chapters_count']}个章节，参与了{stats['events_count']}个事件，与{stats['relationships_count']}个角色建立了关系。"
     
     # 构建结果
     return {
@@ -385,9 +615,11 @@ def get_character_journey(db: Session, novel_id: int, character_id: int) -> Dict
             "name": character.name,
             "description": character.description,
             "alias": character.alias,
-            "first_appearance": character.first_appearance
+            "first_appearance": character.first_appearance,
+            "importance": character.importance
         },
         "journey": {
+            "summary": journey_summary,
             "stages": stages,
             "events": [
                 {
@@ -400,7 +632,11 @@ def get_character_journey(db: Session, novel_id: int, character_id: int) -> Dict
                 } for e in events
             ],
             "relationships": relationships
-        }
+        },
+        "emotions": emotions,
+        "stats": stats,
+        "stages": stages,
+        "key_events": [e for stage in stages for e in stage["key_events"]]
     }
 
 def get_item_lineage(db: Session, novel_id: int, item_id: int) -> Dict[str, Any]:

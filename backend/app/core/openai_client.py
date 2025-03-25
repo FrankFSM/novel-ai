@@ -795,4 +795,103 @@ class OpenAIClient:
                 "一年三百六十日，风刀霜剑严相逼。",
                 "花谢花飞花满天，红消香断有谁怜？"
             ]
-        } 
+        }
+
+    @staticmethod
+    async def extract_character_relationships_from_list(content: str, character_list: str) -> Dict[str, Any]:
+        """从已知角色列表中提取角色之间的关系
+        
+        Args:
+            content: 小说内容
+            character_list: 角色名称列表，逗号分隔
+            
+        Returns:
+            包含节点和边的字典
+        """
+        try:
+            # 如果配置为使用模拟数据，直接返回
+            if settings.USE_MOCK_DATA:
+                logger.info("已配置使用模拟数据，跳过API调用")
+                return OpenAIClient.generate_mock_relationship_data()
+            
+            system_prompt = "你是一位专业的文学分析师，专长于分析小说中的人物关系。"
+            
+            user_prompt = f"分析下面的小说内容，重点关注并提取以下角色之间的关系: {character_list}。\n\n"
+            user_prompt += "只分析列出的角色，不要添加未在列表中的角色。\n\n"
+            user_prompt += "请以JSON格式返回结果，包含以下结构:\n"
+            user_prompt += "{\n"
+            user_prompt += '  "edges": [\n'
+            user_prompt += '    {\n'
+            user_prompt += '      "source_name": "角色A名称",\n'
+            user_prompt += '      "target_name": "角色B名称",\n'
+            user_prompt += '      "relation": "关系类型(如朋友、敌人、师徒等)",\n'
+            user_prompt += '      "description": "关系描述",\n'
+            user_prompt += '      "importance": 0.8  // 关系重要性(0.0-1.0)\n'
+            user_prompt += '    }\n'
+            user_prompt += '  ]\n'
+            user_prompt += '}\n\n'
+            user_prompt += f"以下是小说内容:\n{content[:70000]}"  # 限制内容长度
+            
+            # 初始化客户端
+            client = OpenAI(
+                api_key=settings.OPENAI_API_KEY,
+                base_url=settings.OPENAI_API_BASE
+            )
+            
+            # 调用API
+            response = client.chat.completions.create(
+                model=settings.OPENAI_API_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                response_format={"type": "json_object"}
+            )
+            
+            # 获取响应内容
+            content = response.choices[0].message.content
+            logger.info("\n===原始关系分析响应===\n%s", content)
+            
+            # 健壮的JSON解析
+            try:
+                # 尝试直接解析
+                result = json.loads(content)
+                logger.info("成功解析JSON响应")
+            except json.JSONDecodeError as e:
+                logger.warning(f"直接JSON解析失败: {str(e)}，尝试清理响应内容")
+                
+                # 清理内容，移除可能的前缀说明
+                cleaned_content = content
+                prefixes = [
+                    "好的，", "这是", "以下是", "根据文本，", 
+                    "分析结果：", "人物关系如下：", "JSON格式如下：",
+                    "```json", "```"
+                ]
+                for prefix in prefixes:
+                    if cleaned_content.startswith(prefix):
+                        cleaned_content = cleaned_content[len(prefix):].strip()
+                
+                # 尝试提取大括号内容
+                try:
+                    pattern = r'\{[\s\S]*\}'  # 匹配包括换行符在内的所有字符
+                    match = re.search(pattern, cleaned_content)
+                    if match:
+                        result = json.loads(match.group())
+                        logger.info("通过正则表达式提取并成功解析JSON")
+                    else:
+                        # 如果找不到有效的JSON，返回空结果
+                        logger.error("无法从响应中提取有效的JSON数据")
+                        result = {"edges": []}
+                except (json.JSONDecodeError, AttributeError) as e2:
+                    logger.error(f"JSON提取和解析失败: {str(e2)}")
+                    result = {"edges": []}
+            
+            # 确保结果包含必要的字段
+            if "edges" not in result:
+                result["edges"] = []
+            
+            return result
+        except Exception as e:
+            logger.error(f"OpenAI API提取角色关系失败: {str(e)}")
+            return {"edges": []} 
