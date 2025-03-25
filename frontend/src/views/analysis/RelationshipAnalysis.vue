@@ -145,7 +145,10 @@
             v-for="type in relationTypes" 
             :key="type" 
             class="legend-item"
-            :class="{'legend-item-active': !selectedRelationTypes.length || selectedRelationTypes.includes(type)}"
+            :class="{
+              'legend-item-active': selectedRelationTypes.length === 0 || selectedRelationTypes.includes(type),
+              'legend-item-inactive': selectedRelationTypes.length > 0 && !selectedRelationTypes.includes(type)
+            }"
             @click="toggleRelationType(type)"
           >
             <span class="relation-color-dot" :style="{backgroundColor: getRelationColor(type)}"></span>
@@ -256,12 +259,9 @@ onMounted(async () => {
       selectedCharacter.value = characterId
     }
     
-    // 检查是否有缓存，有则加载，没有则自动生成新的图表
+    // 检查是否有缓存，有则加载，没有则等待用户手动触发生成
     if (analysisStore.hasRelationshipCache(novelId, characterId, graphDepth.value)) {
       // 直接使用缓存数据，不发送API请求
-      await generateGraph(false)
-    } else {
-      // 没有缓存数据时，自动生成新的图表
       await generateGraph(false)
     }
   }
@@ -691,12 +691,30 @@ function getRelationLineType(relationType) {
 
 // 切换关系类型筛选
 function toggleRelationType(type) {
-  const index = selectedRelationTypes.value.indexOf(type)
-  if (index === -1) {
-    selectedRelationTypes.value.push(type)
+  // 获取当前选择的关系类型数组
+  const currentTypes = selectedRelationTypes.value;
+  
+  // 检查点击的类型是否已被选中
+  const index = currentTypes.indexOf(type);
+  
+  if (currentTypes.length === 0) {
+    // 如果当前没有选择任何类型（显示全部），则只选中点击的类型
+    selectedRelationTypes.value = [type];
+  } else if (index === -1) {
+    // 如果点击的类型不在当前选择中，添加它
+    selectedRelationTypes.value.push(type);
+  } else if (currentTypes.length === 1) {
+    // 如果当前只有一个选择且点击的就是它，则清空选择（显示全部）
+    selectedRelationTypes.value = [];
   } else {
-    selectedRelationTypes.value.splice(index, 1)
+    // 如果有多个选择，则移除点击的类型
+    selectedRelationTypes.value.splice(index, 1);
   }
+  
+  // 重新渲染图表
+  nextTick(() => {
+    renderGraph();
+  });
 }
 </script>
 
@@ -834,6 +852,10 @@ function toggleRelationType(type) {
   border-color: #dcdfe6;
   background-color: #fff;
   opacity: 1;
+}
+
+.legend-item-inactive {
+  opacity: 0.4;
 }
 
 .relation-color-dot {
