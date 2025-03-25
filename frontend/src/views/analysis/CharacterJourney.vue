@@ -3,7 +3,16 @@
     <el-card shadow="never">
       <template #header>
         <div class="page-header">
-          <h2>角色旅程分析</h2>
+          <div class="title-with-back">
+            <el-button 
+              type="text" 
+              @click="navigateToCharacterList"
+              icon="ArrowLeft"
+            >
+              返回列表
+            </el-button>
+            <h2>角色旅程分析</h2>
+          </div>
           <div class="header-actions">
             <el-select 
               v-model="selectedNovel" 
@@ -253,7 +262,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/store/novel'
 import { useAnalysisStore } from '@/store/analysis'
 import { ElMessage } from 'element-plus'
-import { ArrowRight } from '@element-plus/icons-vue'
+import { ArrowRight, ArrowLeft } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { characterApi } from '@/api'
 
@@ -453,6 +462,18 @@ function renderEmotionChart() {
   }
   
   emotionChart.value.setOption(options)
+}
+
+// 导航到角色列表
+function navigateToCharacterList() {
+  if (selectedNovel.value) {
+    router.push({
+      path: '/analysis/characters/list',
+      query: { novelId: selectedNovel.value }
+    })
+  } else {
+    router.push('/analysis/characters/list')
+  }
 }
 
 // 导航到小说列表
@@ -725,5 +746,11 @@ async function analyzeCharacters() {
 .relationship-description {
   color: #606266;
   margin-bottom: 10px;
+}
+
+.title-with-back {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 </style> 

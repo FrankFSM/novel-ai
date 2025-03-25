@@ -36,14 +36,28 @@ const routes = [
   {
     path: '/analysis',
     name: 'Analysis',
-    redirect: '/analysis/characters',
+    redirect: '/analysis/characters/list',
     meta: { title: '小说分析' },
     children: [
       {
         path: 'characters',
         name: 'CharacterAnalysis',
-        component: () => import('@/views/analysis/CharacterJourney.vue'),
-        meta: { title: '角色分析' }
+        redirect: '/analysis/characters/list',
+        meta: { title: '角色分析' },
+        children: [
+          {
+            path: 'list',
+            name: 'CharacterList',
+            component: () => import('@/views/analysis/CharacterList.vue'),
+            meta: { title: '角色列表' }
+          },
+          {
+            path: 'journey',
+            name: 'CharacterJourney',
+            component: () => import('@/views/analysis/CharacterJourney.vue'),
+            meta: { title: '角色旅程' }
+          }
+        ]
       },
       {
         path: 'relationships',

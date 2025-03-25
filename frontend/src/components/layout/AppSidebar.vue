@@ -32,7 +32,14 @@
           <el-icon><DataAnalysis /></el-icon>
           <span>小说分析</span>
         </template>
-        <el-menu-item index="/analysis/characters">角色分析</el-menu-item>
+        <el-sub-menu index="/analysis/characters">
+          <template #title>
+            <el-icon><Avatar /></el-icon>
+            <span>角色分析</span>
+          </template>
+          <el-menu-item index="/analysis/characters/list">角色列表</el-menu-item>
+          <el-menu-item index="/analysis/characters/journey">角色旅程</el-menu-item>
+        </el-sub-menu>
         <el-menu-item index="/analysis/relationships">关系网络</el-menu-item>
         <el-menu-item index="/analysis/timeline">时间线</el-menu-item>
         <el-menu-item index="/analysis/locations">地理空间</el-menu-item>
@@ -59,7 +66,8 @@ import {
   Reading, 
   DataAnalysis, 
   ChatDotRound, 
-  Setting 
+  Setting,
+  Avatar
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
