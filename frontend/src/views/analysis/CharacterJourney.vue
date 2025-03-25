@@ -19,6 +19,7 @@
               placeholder="请选择小说" 
               @change="handleNovelChange"
               :loading="novelStore.loading"
+              class="select-with-label"
             >
               <el-option
                 v-for="novel in novelStore.novels"
@@ -34,6 +35,7 @@
               @change="handleCharacterChange"
               :disabled="!selectedNovel || !characters.length"
               :loading="loading"
+              class="select-with-label"
             >
               <el-option
                 v-for="character in characters"
@@ -97,7 +99,7 @@
       
       <!-- 尚未生成角色旅程的提示 -->
       <el-empty 
-        v-else-if="!analysisStore.characterJourney" 
+        v-else-if="!characterJourney" 
         description="点击上方按钮生成角色旅程"
       >
         <el-button type="primary" @click="generateJourney">生成角色旅程</el-button>
@@ -107,46 +109,61 @@
       <div v-else class="journey-content">
         <!-- 角色基本信息卡片 -->
         <el-card class="character-info-card">
-          <div class="character-info">
-            <div class="character-avatar">
-              <el-avatar :size="80" :src="characterAvatar"></el-avatar>
-            </div>
-            <div class="character-details">
-              <h3 class="character-name">
-                {{ characterJourney.character.name }}
-                <el-tag v-if="characterJourney.character.is_main" type="danger" size="small">主角</el-tag>
-              </h3>
-              <div class="character-description">
-                {{ characterJourney.character.description || '暂无描述' }}
+          <!-- 加载中状态 -->
+          <el-skeleton :loading="!characterJourney.character" animated>
+            <template #template>
+              <div style="display: flex; align-items: center; gap: 20px;">
+                <el-skeleton-item variant="circle" style="width: 80px; height: 80px;" />
+                <div style="flex: 1;">
+                  <el-skeleton-item variant="text" style="width: 30%; height: 20px;" />
+                  <el-skeleton-item variant="text" style="width: 70%; margin-top: 15px" />
+                </div>
               </div>
-              <div class="character-aliases" v-if="characterJourney.character.alias && characterJourney.character.alias.length">
-                <span class="aliases-label">别名：</span>
-                <el-tag 
-                  v-for="alias in characterJourney.character.alias" 
-                  :key="alias" 
-                  size="small" 
-                  effect="plain"
-                  style="margin-right: 5px"
-                >
-                  {{ alias }}
-                </el-tag>
+            </template>
+            
+            <template #default>
+              <div class="character-info">
+                <div class="character-avatar">
+                  <el-avatar :size="80" :src="characterAvatar"></el-avatar>
+                </div>
+                <div class="character-details">
+                  <h3 class="character-name">
+                    {{ characterJourney.character?.name || '未知角色' }}
+                    <el-tag v-if="characterJourney.character?.is_main" type="danger" size="small">主角</el-tag>
+                  </h3>
+                  <div class="character-description">
+                    {{ characterJourney.character?.description || '暂无描述' }}
+                  </div>
+                  <div class="character-aliases" v-if="characterJourney.character?.alias && characterJourney.character.alias.length">
+                    <span class="aliases-label">别名：</span>
+                    <el-tag 
+                      v-for="alias in characterJourney.character.alias" 
+                      :key="alias" 
+                      size="small" 
+                      effect="plain"
+                      style="margin-right: 5px"
+                    >
+                      {{ alias }}
+                    </el-tag>
+                  </div>
+                </div>
+                <div class="character-stats">
+                  <div class="stat-item">
+                    <div class="stat-value">{{ characterJourney.stats?.chapters_count || 0 }}</div>
+                    <div class="stat-label">出场章节</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-value">{{ characterJourney.stats?.events_count || 0 }}</div>
+                    <div class="stat-label">相关事件</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-value">{{ characterJourney.stats?.relationships_count || 0 }}</div>
+                    <div class="stat-label">人物关系</div>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="character-stats">
-              <div class="stat-item">
-                <div class="stat-value">{{ characterJourney.stats.chapters_count }}</div>
-                <div class="stat-label">出场章节</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-value">{{ characterJourney.stats.events_count }}</div>
-                <div class="stat-label">相关事件</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-value">{{ characterJourney.stats.relationships_count }}</div>
-                <div class="stat-label">人物关系</div>
-              </div>
-            </div>
-          </div>
+            </template>
+          </el-skeleton>
         </el-card>
         
         <!-- 旅程可视化部分 -->
@@ -155,7 +172,8 @@
             <!-- 发展阶段标签页 -->
             <el-tab-pane label="发展阶段" name="stages">
               <div class="stages-container">
-                <el-steps :active="characterJourney.stages.length" finish-status="success" :space="200" direction="vertical">
+                <el-empty v-if="!characterJourney.stages || !characterJourney.stages.length" description="暂无发展阶段数据" />
+                <el-steps v-else :active="characterJourney.stages.length" finish-status="success" :space="200" direction="vertical">
                   <el-step 
                     v-for="(stage, index) in characterJourney.stages" 
                     :key="index"
@@ -173,18 +191,19 @@
             <!-- 关键事件标签页 -->
             <el-tab-pane label="关键事件" name="events">
               <div class="events-container">
-                <el-timeline>
+                <el-empty v-if="!characterJourney.key_events || !characterJourney.key_events.length" description="暂无关键事件数据" />
+                <el-timeline v-else>
                   <el-timeline-item
-                    v-for="event in characterJourney.key_events"
-                    :key="event.id"
-                    :timestamp="`第${event.chapter_id}章`"
+                    v-for="(event, index) in characterJourney.key_events"
+                    :key="event.id || `event-${index}`"
+                    :timestamp="`第${event.chapter_id || '?'}章`"
                     :type="getEventType(event)"
                     :color="getEventColor(event)"
                     placement="top"
                   >
                     <div class="event-card">
-                      <h4>{{ event.name }}</h4>
-                      <p>{{ event.description }}</p>
+                      <h4>{{ event.name || '未命名事件' }}</h4>
+                      <p>{{ event.description || '暂无描述' }}</p>
                       <div class="event-participants" v-if="event.participants && event.participants.length">
                         <span class="participants-label">相关角色：</span>
                         <el-tag
@@ -209,17 +228,19 @@
             <!-- 情感变化标签页 -->
             <el-tab-pane label="情感变化" name="emotions">
               <div class="emotions-container">
-                <div ref="emotionChartRef" class="emotion-chart"></div>
+                <el-empty v-if="!characterJourney.emotions || !characterJourney.emotions.length" description="暂无情感变化数据" />
+                <div v-else ref="emotionChartRef" class="emotion-chart"></div>
               </div>
             </el-tab-pane>
             
             <!-- 人物关系标签页 -->
             <el-tab-pane label="人物关系" name="relationships">
               <div class="relationships-container">
-                <div class="relationship-list">
+                <el-empty v-if="!characterJourney.relationships || !characterJourney.relationships.length" description="暂无人物关系数据" />
+                <div v-else class="relationship-list">
                   <el-card 
-                    v-for="relation in characterJourney.relationships" 
-                    :key="relation.id"
+                    v-for="(relation, index) in characterJourney.relationships" 
+                    :key="relation.id || `relation-${index}`"
                     class="relationship-card"
                     shadow="hover"
                   >
@@ -231,11 +252,11 @@
                       </div>
                       <div class="relationship-info">
                         <div class="relationship-title">
-                          <span class="character-name">{{ characterJourney.character.name }}</span>
+                          <span class="character-name">{{ characterJourney.character?.name || '未知角色' }}</span>
                           <el-tag size="small" :type="getRelationTagType(relation.relation_type)">
-                            {{ relation.relation_type }}
+                            {{ relation.relation_type || '未知关系' }}
                           </el-tag>
-                          <span class="target-name">{{ relation.target_character_name }}</span>
+                          <span class="target-name">{{ relation.target_character_name || '未知角色' }}</span>
                         </div>
                         <div class="relationship-description">
                           {{ relation.description || '暂无描述' }}
@@ -257,7 +278,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/store/novel'
 import { useAnalysisStore } from '@/store/analysis'
@@ -287,6 +308,19 @@ const characterJourney = computed(() => analysisStore.characterJourney || null)
 const characterAvatar = computed(() => {
   return `https://avatars.dicebear.com/api/avataaars/${selectedCharacter.value || 'default'}.svg`
 })
+
+// 保留计算属性以便在内部使用
+const selectedNovelTitle = computed(() => {
+  if (!selectedNovel.value) return '';
+  const novel = novelStore.novels.find(n => n.id === Number(selectedNovel.value));
+  return novel ? novel.title : '';
+});
+
+const selectedCharacterName = computed(() => {
+  if (!selectedCharacter.value) return '';
+  const character = characters.value.find(c => c.id === Number(selectedCharacter.value));
+  return character ? character.name : '';
+});
 
 // 从路由参数中获取小说ID和角色ID
 onMounted(async () => {
@@ -357,112 +391,181 @@ async function loadCharacters(novelId, forceRefresh = false) {
 
 // 小说选择变化处理
 async function handleNovelChange(novelId) {
-  selectedCharacter.value = null
-  analysisStore.reset()
-  await loadCharacters(novelId)
+  // 明确转换为数字类型
+  selectedNovel.value = Number(novelId);
+  selectedCharacter.value = null;
+  analysisStore.reset();
+  await loadCharacters(novelId);
   
   // 更新URL参数
   router.replace({
     query: { ...route.query, novelId, characterId: undefined }
-  })
+  });
 }
 
 // 角色选择变化处理
 function handleCharacterChange(characterId) {
-  analysisStore.reset()
+  // 明确转换为数字类型
+  selectedCharacter.value = Number(characterId);
+  analysisStore.reset();
   
   // 更新URL参数
   router.replace({
     query: { ...route.query, characterId }
-  })
+  });
 }
 
-// 生成角色旅程
+// 生成角色旅程 - 增强版，确保显示错误信息
 async function generateJourney() {
-  if (!selectedNovel.value || !selectedCharacter.value) return
+  if (!selectedNovel.value || !selectedCharacter.value) {
+    ElMessage.warning('请先选择小说和角色');
+    return;
+  }
   
   try {
+    console.log(`正在生成角色旅程，小说ID: ${selectedNovel.value}，角色ID: ${selectedCharacter.value}`);
     await analysisStore.fetchCharacterJourney(
       selectedNovel.value,
       selectedCharacter.value
-    )
+    );
+    
+    if (analysisStore.characterJourney) {
+      ElMessage.success('角色旅程生成成功');
+    } else if (analysisStore.error) {
+      ElMessage.error(`生成失败: ${analysisStore.error}`);
+    }
   } catch (error) {
-    ElMessage.error('生成角色旅程失败')
+    console.error('生成角色旅程出错:', error);
+    ElMessage.error(`生成角色旅程失败: ${error.message || '未知错误'}`);
   }
 }
 
 // 渲染情感变化图表
 function renderEmotionChart() {
-  if (!emotionChartRef.value || !characterJourney.value?.emotions) return
-  
-  if (!emotionChart.value) {
-    emotionChart.value = echarts.init(emotionChartRef.value)
+  if (!emotionChartRef.value || !characterJourney.value?.emotions || !characterJourney.value.emotions.length) {
+    console.log('[角色旅程图表] 没有可用的情感数据或图表容器不存在，跳过渲染');
+    return;
   }
   
-  const emotions = characterJourney.value.emotions
-  
-  const options = {
-    title: {
-      text: '角色情感变化趋势',
-      left: 'center'
-    },
-    tooltip: {
-      trigger: 'axis',
-      formatter: function(params) {
-        return `第${params[0].name}章<br/>${params[0].marker}${params[0].seriesName}: ${params[0].value}`
-      }
-    },
-    xAxis: {
-      type: 'category',
-      data: emotions.map(item => item.chapter_id),
-      name: '章节',
-      nameLocation: 'middle',
-      nameGap: 30
-    },
-    yAxis: {
-      type: 'value',
-      name: '情感值',
-      min: -100,
-      max: 100,
-      interval: 50,
-      axisLabel: {
-        formatter: '{value}'
-      }
-    },
-    visualMap: {
-      show: false,
-      dimension: 1,
-      pieces: [
-        {gte: 50, color: '#d94e5d'},  // 喜悦
-        {gte: 10, lt: 50, color: '#eac736'},  // 平静
-        {gte: -10, lt: 10, color: '#50a3ba'},  // 中性
-        {gte: -50, lt: -10, color: '#4b5cc4'},  // 低落
-        {lt: -50, color: '#594d9c'}  // 悲伤
-      ]
-    },
-    series: [
-      {
-        name: '情感值',
-        type: 'line',
-        smooth: true,
-        data: emotions.map(item => item.value),
-        markPoint: {
-          data: [
-            { type: 'max', name: '最高值' },
-            { type: 'min', name: '最低值' }
-          ]
-        },
-        markLine: {
-          data: [
-            { type: 'average', name: '平均值' }
-          ]
+  try {
+    // 确保DOM已经渲染完成
+    nextTick(() => {
+      try {
+        console.log('[角色旅程图表] 开始渲染情感图表');
+        // 处理可能存在的旧图表
+        if (emotionChart.value) {
+          console.log('[角色旅程图表] 销毁旧图表实例');
+          emotionChart.value.dispose();
+          emotionChart.value = null;
         }
+        
+        // 初始化图表
+        console.log('[角色旅程图表] 创建新图表实例');
+        emotionChart.value = echarts.init(emotionChartRef.value);
+        
+        const emotions = characterJourney.value.emotions;
+        console.log(`[角色旅程图表] 数据点数量: ${emotions.length}`);
+        
+        const options = {
+          title: {
+            text: '角色情感变化趋势',
+            left: 'center'
+          },
+          tooltip: {
+            trigger: 'axis',
+            formatter: function(params) {
+              return `第${params[0].name}章<br/>${params[0].marker}${params[0].seriesName}: ${params[0].value}`;
+            }
+          },
+          grid: {
+            left: '5%',
+            right: '5%',
+            bottom: '10%',
+            containLabel: true
+          },
+          xAxis: {
+            type: 'category',
+            data: emotions.map(item => item.chapter_id),
+            name: '章节',
+            nameLocation: 'middle',
+            nameGap: 30
+          },
+          yAxis: {
+            type: 'value',
+            name: '情感值',
+            min: -100,
+            max: 100,
+            interval: 50,
+            axisLabel: {
+              formatter: '{value}'
+            }
+          },
+          visualMap: {
+            show: false,
+            dimension: 1,
+            pieces: [
+              {gte: 50, color: '#d94e5d'},  // 喜悦
+              {gte: 10, lt: 50, color: '#eac736'},  // 平静
+              {gte: -10, lt: 10, color: '#50a3ba'},  // 中性
+              {gte: -50, lt: -10, color: '#4b5cc4'},  // 低落
+              {lt: -50, color: '#594d9c'}  // 悲伤
+            ]
+          },
+          series: [
+            {
+              name: '情感值',
+              type: 'line',
+              smooth: true,
+              data: emotions.map(item => item.value),
+              markPoint: {
+                data: [
+                  { type: 'max', name: '最高值' },
+                  { type: 'min', name: '最低值' }
+                ]
+              },
+              markLine: {
+                data: [
+                  { type: 'average', name: '平均值' }
+                ]
+              }
+            }
+          ]
+        };
+        
+        console.log('[角色旅程图表] 设置图表选项');
+        emotionChart.value.setOption(options);
+        
+        // 添加窗口大小调整监听，以确保图表响应式调整大小
+        const resizeHandler = () => {
+          if (emotionChart.value) {
+            console.log('[角色旅程图表] 调整图表大小');
+            emotionChart.value.resize();
+          }
+        };
+        
+        window.removeEventListener('resize', resizeHandler);
+        window.addEventListener('resize', resizeHandler);
+        
+        console.log('[角色旅程图表] 图表渲染完成');
+      } catch (innerError) {
+        console.error('[角色旅程图表] 渲染过程中出错:', innerError);
       }
-    ]
+    });
+  } catch (error) {
+    console.error('[角色旅程图表] 渲染情感图表失败:', error);
   }
-  
-  emotionChart.value.setOption(options)
 }
+
+// 确保组件销毁时清理图表资源
+onUnmounted(() => {
+  if (emotionChart.value) {
+    console.log('[角色旅程图表] 组件卸载，销毁图表');
+    emotionChart.value.dispose();
+    emotionChart.value = null;
+  }
+  // 移除所有resize事件监听器
+  window.removeEventListener('resize', () => {});
+});
 
 // 导航到角色列表
 function navigateToCharacterList() {
@@ -537,13 +640,6 @@ function getStageIcon(index) {
 function getRandomAvatar(id) {
   return `https://avatars.dicebear.com/api/avataaars/${id || Math.random()}.svg`
 }
-
-// 窗口大小变化时重绘图表
-window.addEventListener('resize', () => {
-  if (emotionChart.value) {
-    emotionChart.value.resize()
-  }
-})
 
 // 手动分析角色按钮处理
 async function analyzeCharacters() {
@@ -752,5 +848,28 @@ async function analyzeCharacters() {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.selected-info {
+  display: none;
+}
+
+/* 调整下拉框样式 */
+.select-with-label {
+  min-width: 150px;
+}
+
+/* 确保下拉框中的文本不会被截断 */
+:deep(.el-select-dropdown__item) {
+  white-space: normal;
+  height: auto;
+  padding: 8px 20px;
+  line-height: 1.5;
+}
+
+:deep(.el-input__inner) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style> 

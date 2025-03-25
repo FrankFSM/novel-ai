@@ -39,10 +39,22 @@ export default {
   
   // 获取角色旅程
   getCharacterJourney(novelId, characterId) {
+    console.log(`[API] 请求角色旅程数据: 小说ID=${novelId}, 角色ID=${characterId}`);
+    
     return request({
       url: `/analysis/character-journey/${novelId}/${characterId}`,
-      method: 'get'
-    })
+      method: 'get',
+      // 添加错误处理配置
+      validateStatus: function (status) {
+        return status >= 200 && status < 500; // 只要不是500错误都返回
+      },
+      // 添加超时设置，因为角色旅程生成可能需要时间
+      timeout: 30000 // 30秒
+    }).catch(err => {
+      console.error(`[API] 角色旅程请求失败:`, err);
+      // 将错误重新抛出，以便在store中处理
+      throw err;
+    });
   },
   
   // 获取物品传承历史
