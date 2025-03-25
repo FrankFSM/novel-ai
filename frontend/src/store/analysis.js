@@ -22,22 +22,31 @@ export const useAnalysisStore = defineStore('analysis', () => {
     loading.value = true
     error.value = null
     
+    console.log(`[DEBUG] fetchRelationshipGraph 调用参数:`, { novelId, characterId, depth, forceRefresh })
+    
     const cacheKey = `${novelId}_${characterId || 'null'}_${depth}`
     
     // 如果缓存中有数据且不是强制刷新，则使用缓存数据
     if (!forceRefresh && analysisCache.value.relationship[cacheKey]) {
+      console.log(`[DEBUG] 使用缓存数据 (cacheKey=${cacheKey})`)
       relationshipGraph.value = analysisCache.value.relationship[cacheKey]
       loading.value = false
       return relationshipGraph.value
     }
     
     try {
+      // 在获取新数据时，保留旧数据直到新数据返回
+      const oldGraph = relationshipGraph.value
+      
+      console.log(`[DEBUG] 发送API请求 (forceRefresh=${forceRefresh})`)
       const response = await analysisApi.getRelationshipGraph({
         novel_id: novelId,
         character_id: characterId,
-        depth
+        depth,
+        force_refresh: forceRefresh
       })
       
+      console.log(`[DEBUG] 收到API响应:`, response.data ? '数据有效' : '数据无效')
       relationshipGraph.value = response.data
       
       // 将数据添加到缓存
@@ -45,6 +54,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
       
       return response.data
     } catch (err) {
+      console.error(`[DEBUG] API请求失败:`, err)
       error.value = err.message || '获取关系图失败'
       throw err
     } finally {

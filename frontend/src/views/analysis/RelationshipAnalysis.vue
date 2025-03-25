@@ -58,7 +58,11 @@
             
             <el-button
               type="warning"
-              @click="generateGraph(true)"
+              @click="() => {
+                console.log('[DEBUG] 点击重新分析按钮，设置forceRefresh=true');
+                const forceRefresh = true;
+                forceReanalyze();
+              }"
               :disabled="!selectedNovel || analysisStore.loading"
               v-if="hasCachedGraph"
             >
@@ -76,8 +80,8 @@
         <el-button type="primary" @click="navigateToNovelList">浏览小说列表</el-button>
       </el-empty>
       
-      <!-- 加载中状态 -->
-      <div v-else-if="analysisStore.loading" class="loading-container">
+      <!-- 加载中状态 - 仅在没有图表的情况下显示 -->
+      <div v-else-if="analysisStore.loading && !analysisStore.relationshipGraph" class="loading-container">
         <el-skeleton :rows="10" animated />
       </div>
       
@@ -104,8 +108,14 @@
         </div>
       </el-empty>
       
-      <!-- 关系图 -->
+      <!-- 关系图 - 包含加载状态覆盖 -->
       <div v-else class="graph-container">
+        <!-- 当强制刷新时显示的加载指示器 -->
+        <div v-if="analysisStore.loading" class="loading-overlay">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span>正在重新分析...</span>
+        </div>
+        
         <div class="graph-toolbar">
           <el-radio-group v-model="graphMode" size="small">
             <el-radio-button value="force">力导向图</el-radio-button>
@@ -213,8 +223,9 @@ import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/store/novel'
 import { useAnalysisStore } from '@/store/analysis'
 import { ElMessage } from 'element-plus'
-import { Download, ArrowRight, ArrowLeft } from '@element-plus/icons-vue'
+import { Download, ArrowRight, ArrowLeft, Loading } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import { analysisApi } from '@/api'
 
 const router = useRouter()
 const route = useRoute()
@@ -364,9 +375,12 @@ async function loadCharacters(novelId) {
 
 // 小说选择变化处理
 async function handleNovelChange(novelId) {
-  selectedCharacter.value = null
-  analysisStore.reset()
-  await loadCharacters(novelId)
+  // 仅在小说真正改变时才重置数据
+  if (selectedNovel.value !== novelId) {
+    selectedCharacter.value = null
+    analysisStore.reset()
+    await loadCharacters(novelId)
+  }
   
   // 更新URL参数
   router.replace({
@@ -391,15 +405,21 @@ function handleCharacterChange(characterId) {
 async function generateGraph(forceRefresh = false) {
   if (!selectedNovel.value) return
   
+  // 确保forceRefresh是布尔值
+  const shouldForceRefresh = forceRefresh === true;
+  console.log(`[DEBUG] generateGraph 调用，forceRefresh=${shouldForceRefresh} (${typeof shouldForceRefresh})`);
+  
   try {
+    // 保持当前的图表可见，直到新数据加载完成
     // 调用后端API获取真实的关系网络数据，添加forceRefresh参数
     await analysisStore.fetchRelationshipGraph(
       selectedNovel.value,
       selectedCharacter.value,
       graphDepth.value,
-      forceRefresh
+      shouldForceRefresh
     )
     
+    // 请求完成后再渲染图表
     nextTick(() => {
       renderGraph()
     })
@@ -410,7 +430,11 @@ async function generateGraph(forceRefresh = false) {
 
 // 渲染关系图
 function renderGraph() {
-  if (!graphRef.value || !analysisStore.relationshipGraph) return
+  if (!graphRef.value) return
+  // 确保有关系图数据才进行渲染
+  if (!analysisStore.relationshipGraph) {
+    return
+  }
   
   if (!graphChart.value) {
     graphChart.value = echarts.init(graphRef.value)
@@ -422,7 +446,7 @@ function renderGraph() {
     
     // 监听容器大小变化
     window.addEventListener('resize', () => {
-      graphChart.value.resize()
+      graphChart.value && graphChart.value.resize()
     })
   } else {
     // 强制刷新图表大小以适应容器
@@ -716,6 +740,43 @@ function toggleRelationType(type) {
     renderGraph();
   });
 }
+
+// 专门用于强制重新分析的函数
+async function forceReanalyze() {
+  if (!selectedNovel.value) return
+  
+  try {
+    // 修改为使用store中的loading状态
+    analysisStore.loading = true
+    
+    // 直接发起API请求，绕过store的缓存逻辑
+    console.log('[DEBUG] 直接发起强制刷新请求');
+    
+    const response = await analysisApi.getRelationshipGraph({
+      novel_id: selectedNovel.value,
+      character_id: selectedCharacter.value,
+      depth: graphDepth.value,
+      force_refresh: true, // 强制设置为true
+      _timestamp: new Date().getTime() // 添加时间戳避免缓存
+    });
+    
+    // 更新图表数据
+    analysisStore.relationshipGraph = response.data;
+    
+    // 渲染图表
+    nextTick(() => {
+      renderGraph();
+    });
+    
+    // 提示用户
+    ElMessage.success('已成功重新分析关系网络');
+  } catch (error) {
+    ElMessage.error('强制重新分析失败');
+    console.error('[DEBUG] 强制重新分析失败:', error);
+  } finally {
+    analysisStore.loading = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -754,6 +815,7 @@ function toggleRelationType(type) {
   height: calc(100vh - 260px);
   min-height: 500px;
   width: 100%;
+  position: relative;
 }
 
 .graph-toolbar {
@@ -864,5 +926,31 @@ function toggleRelationType(type) {
   border-radius: 50%;
   margin-right: 5px;
   display: inline-block;
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  z-index: 10;
+  border-radius: 4px;
+}
+
+.loading-overlay .el-icon {
+  font-size: 24px;
+  color: var(--el-color-primary);
+  margin-bottom: 10px;
+}
+
+.loading-overlay span {
+  color: var(--el-color-primary);
+  font-size: 14px;
 }
 </style> 

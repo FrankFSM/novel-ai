@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from app.core.database import get_db
 from app.models import schemas
@@ -18,6 +18,13 @@ async def get_relationship_graph(
     db: Session = Depends(get_db)
 ):
     """获取关系网络图"""
+    # 记录请求参数，包括类型信息
+    logger.info(f"关系网络图API请求: novel_id={data.novel_id}, character_id={data.character_id}, depth={data.depth}, force_refresh={data.force_refresh} (类型: {type(data.force_refresh).__name__})")
+    
+    # 确保force_refresh是布尔值
+    force_refresh = bool(data.force_refresh)
+    logger.info(f"处理后的force_refresh={force_refresh}")
+    
     # 检查小说是否存在
     novel = novel_service.get_novel(db=db, novel_id=data.novel_id)
     if not novel:
@@ -35,7 +42,8 @@ async def get_relationship_graph(
             db=db, 
             novel_id=data.novel_id,
             character_id=data.character_id,
-            depth=data.depth
+            depth=data.depth,
+            force_refresh=force_refresh  # 使用处理后的值
         )
         return result
     except Exception as e:

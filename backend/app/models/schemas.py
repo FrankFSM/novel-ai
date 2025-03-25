@@ -152,6 +152,7 @@ class RelationshipGraphRequest(BaseModel):
     novel_id: int
     character_id: Optional[int] = None  # 如果指定，则只返回与该角色相关的关系
     depth: int = 1  # 关系图深度
+    force_refresh: bool = False  # 是否强制刷新缓存
 
 class RelationshipGraphResponse(BaseModel):
     nodes: List[Dict[str, Any]]

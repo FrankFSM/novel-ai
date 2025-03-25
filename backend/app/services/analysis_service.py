@@ -13,7 +13,8 @@ async def get_relationship_graph(
     db: Session,
     novel_id: int,
     character_id: Optional[int] = None,
-    depth: int = 2
+    depth: int = 2,
+    force_refresh: bool = False
 ) -> Dict[str, Any]:
     """获取小说人物关系图
     
@@ -22,16 +23,31 @@ async def get_relationship_graph(
         novel_id: 小说ID
         character_id: 可选的中心角色ID
         depth: 关系网络深度
+        force_refresh: 是否强制刷新（忽略缓存）
         
     Returns:
         包含节点和边的字典
     """
+    # 记录请求参数
+    logger.info(f"请求关系图: novel_id={novel_id}, character_id={character_id}, depth={depth}, force_refresh={force_refresh}")
+    
     # 获取小说
     novel = novel_service.get_novel(db=db, novel_id=novel_id)
     if not novel:
         raise ValueError("小说不存在")
-        
+    
+    # 如果不是强制刷新，尝试从数据库获取缓存的关系图
+    if not force_refresh:
+        logger.info(f"尝试获取缓存数据 (force_refresh={force_refresh})")
+        cached_graph = get_cached_relationship_graph(db, novel_id, character_id, depth)
+        if cached_graph:
+            logger.info(f"从数据库缓存获取关系图数据: novel_id={novel_id}, character_id={character_id}, depth={depth}")
+            return cached_graph
+    else:
+        logger.info(f"强制刷新模式，跳过缓存检查 (force_refresh={force_refresh})")
+    
     # 获取小说内容（从章节中）
+    logger.info(f"未找到缓存或强制刷新，开始生成新的关系图...")
     content = novel_service.get_novel_chapters_content(db=db, novel_id=novel_id)
     if not content:
         raise ValueError("小说内容为空")
@@ -52,13 +68,143 @@ async def get_relationship_graph(
                 center_name=character.name,
                 depth=depth
             )
-            return filtered_data
             
+            # 保存到数据库
+            save_relationship_graph(db, novel_id, character_id, depth, filtered_data)
+            
+            return filtered_data
+        
+        # 保存到数据库
+        save_relationship_graph(db, novel_id, None, depth, relationship_data)
+        
         return relationship_data
         
     except Exception as e:
         logger.error(f"提取人物关系失败: {str(e)}")
         raise
+
+def get_cached_relationship_graph(
+    db: Session,
+    novel_id: int,
+    character_id: Optional[int] = None,
+    depth: int = 1
+) -> Optional[Dict[str, Any]]:
+    """从数据库获取缓存的关系图数据
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        character_id: 可选的中心角色ID
+        depth: 关系网络深度
+        
+    Returns:
+        缓存的关系图数据，如果不存在则返回None
+    """
+    from app.models.novel import RelationshipGraph, RelationshipEdge
+    
+    logger.info(f"查询缓存: novel_id={novel_id}, character_id={character_id}, depth={depth}")
+    
+    # 查询条件
+    query = db.query(RelationshipGraph).filter(
+        RelationshipGraph.novel_id == novel_id,
+        RelationshipGraph.depth == depth
+    )
+    
+    if character_id:
+        query = query.filter(RelationshipGraph.character_id == character_id)
+    else:
+        query = query.filter(RelationshipGraph.character_id == None)
+    
+    # 获取缓存的图
+    cached_graph = query.first()
+    
+    if not cached_graph:
+        return None
+    
+    # 获取边数据
+    edges = db.query(RelationshipEdge).filter(
+        RelationshipEdge.graph_id == cached_graph.id
+    ).all()
+    
+    # 构建返回数据
+    return {
+        "nodes": cached_graph.nodes,
+        "edges": [
+            {
+                "id": edge.id,
+                "source_id": edge.source_id,
+                "target_id": edge.target_id,
+                "source_name": edge.source_name,
+                "target_name": edge.target_name,
+                "relation": edge.relation,
+                "description": edge.description,
+                "importance": edge.importance
+            }
+            for edge in edges
+        ]
+    }
+
+def save_relationship_graph(
+    db: Session,
+    novel_id: int,
+    character_id: Optional[int],
+    depth: int,
+    graph_data: Dict[str, Any]
+) -> None:
+    """保存关系图数据到数据库
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        character_id: 可选的中心角色ID
+        depth: 关系网络深度
+        graph_data: 关系图数据
+    """
+    from app.models.novel import RelationshipGraph, RelationshipEdge
+    
+    # 删除可能存在的旧数据
+    query = db.query(RelationshipGraph).filter(
+        RelationshipGraph.novel_id == novel_id,
+        RelationshipGraph.depth == depth
+    )
+    
+    if character_id:
+        query = query.filter(RelationshipGraph.character_id == character_id)
+    else:
+        query = query.filter(RelationshipGraph.character_id == None)
+    
+    existing = query.first()
+    if existing:
+        db.delete(existing)
+        db.flush()
+    
+    # 创建新的图数据
+    new_graph = RelationshipGraph(
+        novel_id=novel_id,
+        character_id=character_id,
+        depth=depth,
+        nodes=graph_data["nodes"]
+    )
+    
+    db.add(new_graph)
+    db.flush()  # 刷新以获取新ID
+    
+    # 添加边数据
+    for edge_data in graph_data["edges"]:
+        edge = RelationshipEdge(
+            graph_id=new_graph.id,
+            source_id=edge_data["source_id"],
+            target_id=edge_data["target_id"],
+            source_name=edge_data["source_name"],
+            target_name=edge_data["target_name"],
+            relation=edge_data["relation"],
+            description=edge_data.get("description"),
+            importance=edge_data.get("importance", 1.0)
+        )
+        db.add(edge)
+    
+    db.commit()
+    logger.info(f"保存关系图数据到数据库: novel_id={novel_id}, character_id={character_id}, depth={depth}")
 
 def get_timeline(
     db: Session, 

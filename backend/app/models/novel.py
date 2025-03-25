@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Table, Float, JSON
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Table, Float, JSON, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -23,6 +23,7 @@ class Novel(Base):
     items = relationship("Item", back_populates="novel", cascade="all, delete-orphan")
     events = relationship("Event", back_populates="novel", cascade="all, delete-orphan")
     relationships = relationship("Relationship", back_populates="novel", cascade="all, delete-orphan")
+    relationship_graphs = relationship("RelationshipGraph", back_populates="novel", cascade="all, delete-orphan")
 
 class Chapter(Base):
     """章节模型"""
@@ -74,6 +75,7 @@ class Character(Base):
     to_relationships = relationship("Relationship", foreign_keys="Relationship.to_character_id", back_populates="to_character")
     owned_items = relationship("Item", back_populates="owner")
     participations = relationship("EventParticipation", back_populates="character")
+    relationship_graphs = relationship("RelationshipGraph", back_populates="character", cascade="all, delete-orphan")
 
 class Location(Base):
     """地点模型"""
@@ -193,4 +195,43 @@ class ItemTransfer(Base):
     # 关系
     item = relationship("Item", back_populates="transfers")
     from_character = relationship("Character", foreign_keys=[from_character_id])
-    to_character = relationship("Character", foreign_keys=[to_character_id]) 
+    to_character = relationship("Character", foreign_keys=[to_character_id])
+
+class RelationshipGraph(Base):
+    """关系网络分析结果表"""
+    __tablename__ = "relationship_graphs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    novel_id = Column(Integer, ForeignKey("novels.id", ondelete="CASCADE"), nullable=False)
+    character_id = Column(Integer, ForeignKey("characters.id", ondelete="CASCADE"), nullable=True)
+    depth = Column(Integer, default=1)
+    
+    # 存储节点数据
+    nodes = Column(JSON)
+    
+    # 创建和更新时间
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # 设置外键关系
+    novel = relationship("Novel", back_populates="relationship_graphs")
+    character = relationship("Character", back_populates="relationship_graphs")
+    edges = relationship("RelationshipEdge", back_populates="graph", cascade="all, delete-orphan")
+
+class RelationshipEdge(Base):
+    """关系网络边数据表"""
+    __tablename__ = "relationship_edges"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    graph_id = Column(Integer, ForeignKey("relationship_graphs.id", ondelete="CASCADE"), nullable=False)
+    
+    source_id = Column(Integer, nullable=False)
+    target_id = Column(Integer, nullable=False)
+    source_name = Column(String, nullable=False)
+    target_name = Column(String, nullable=False)
+    relation = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    importance = Column(Float, default=1.0)
+    
+    # 关联到图表
+    graph = relationship("RelationshipGraph", back_populates="edges") 
