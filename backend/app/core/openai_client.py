@@ -138,7 +138,7 @@ class OpenAIClient:
                 logger.info("已配置使用模拟数据，跳过API调用")
                 return OpenAIClient.generate_mock_relationship_data()
 
-            system_prompt = """你是一个专业的小说分析助手。请分析输入的文本，提取出所有人物及其关系，并按以下JSON格式输出：
+            system_prompt = """你是一个专业的小说分析助手。请深入分析输入的文本，提取出所有人物及其关系，并按以下JSON格式输出：
 {
     "nodes": [
         {
@@ -161,12 +161,18 @@ class OpenAIClient:
     ]
 }
 
-注意：
-1. 每个人物都应该有唯一的id
-2. 关系是有向的，source指向target
-3. 重要性评分1-5，5分最重要
-4. 请确保输出是合法的JSON格式
-5. 不要输出任何额外的解释或分析，只返回JSON数据
+特别注意：
+1. 请全面识别所有直接和间接的人物关系
+2. 注意识别隐含的关系，例如：
+   - 如果A是B的师傅，B是C的师兄弟，那么A也是C的师傅
+   - 如果多人被称为同门，应确保它们与门派掌门/师傅都建立关系
+3. 对于家庭关系，要充分建立家庭成员之间的所有关联
+4. 每个人物都应该有唯一的id
+5. 关系是有向的，source指向target
+6. 重要性评分1-5，5分最重要
+7. 同一对人物之间可能存在多种关系，应分别列出
+8. 请确保输出是合法的JSON格式
+9. 不要输出任何额外的解释或分析，只返回JSON数据
 """
             
             messages = [
@@ -261,15 +267,21 @@ class OpenAIClient:
                 {"id": 4, "name": "李师兄", "description": "秦煜的师兄", "importance": 2},
                 {"id": 5, "name": "赵敏", "description": "林惜的闺蜜", "importance": 3},
                 {"id": 6, "name": "古尘", "description": "隐世高人", "importance": 4},
-                {"id": 7, "name": "黑袍人", "description": "神秘反派", "importance": 4}
+                {"id": 7, "name": "黑袍人", "description": "神秘反派", "importance": 4},
+                {"id": 8, "name": "张衡", "description": "李师兄的师弟，秦煜的同门", "importance": 2}
             ],
             "edges": [
-                {"source_id": 1, "target_id": 2, "source_name": "林惜", "target_name": "秦煜", "relation": "恋人", "description": "青梅竹马，共同修行", "importance": 5},
-                {"source_id": 2, "target_id": 3, "source_name": "秦煜", "target_name": "王长老", "relation": "师徒", "description": "王长老是秦煜的恩师", "importance": 4},
+                {"source_id": 2, "target_id": 1, "source_name": "秦煜", "target_name": "林惜", "relation": "恋人", "description": "青梅竹马，共同修行", "importance": 5},
+                {"source_id": 3, "target_id": 2, "source_name": "王长老", "target_name": "秦煜", "relation": "师徒", "description": "王长老是秦煜的恩师", "importance": 4},
+                {"source_id": 3, "target_id": 4, "source_name": "王长老", "target_name": "李师兄", "relation": "师徒", "description": "王长老是李师兄的师傅", "importance": 3},
+                {"source_id": 3, "target_id": 8, "source_name": "王长老", "target_name": "张衡", "relation": "师徒", "description": "王长老是张衡的师傅", "importance": 3},
                 {"source_id": 1, "target_id": 5, "source_name": "林惜", "target_name": "赵敏", "relation": "朋友", "description": "情同姐妹的闺蜜", "importance": 3},
                 {"source_id": 2, "target_id": 4, "source_name": "秦煜", "target_name": "李师兄", "relation": "同门", "description": "同门师兄弟，亦师亦友", "importance": 2},
+                {"source_id": 2, "target_id": 8, "source_name": "秦煜", "target_name": "张衡", "relation": "同门", "description": "同门师兄弟", "importance": 2},
+                {"source_id": 4, "target_id": 8, "source_name": "李师兄", "target_name": "张衡", "relation": "同门", "description": "同门师兄弟", "importance": 2},
                 {"source_id": 6, "target_id": 1, "source_name": "古尘", "target_name": "林惜", "relation": "师徒", "description": "隐世高人收林惜为徒", "importance": 4},
                 {"source_id": 7, "target_id": 2, "source_name": "黑袍人", "target_name": "秦煜", "relation": "敌人", "description": "有不共戴天之仇", "importance": 4},
+                {"source_id": 7, "target_id": 1, "source_name": "黑袍人", "target_name": "林惜", "relation": "敌人", "description": "因秦煜而成为敌人", "importance": 3},
                 {"source_id": 3, "target_id": 6, "source_name": "王长老", "target_name": "古尘", "relation": "旧识", "description": "多年前的故交", "importance": 2},
                 {"source_id": 7, "target_id": 6, "source_name": "黑袍人", "target_name": "古尘", "relation": "仇敌", "description": "曾经的同门，如今势不两立", "importance": 5}
             ]

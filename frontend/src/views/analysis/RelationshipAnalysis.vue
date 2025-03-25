@@ -112,13 +112,25 @@
             <el-radio-button value="circular">环形图</el-radio-button>
           </el-radio-group>
           
-          <el-select v-model="selectedRelationType" clearable placeholder="筛选关系类型" size="small">
+          <el-select 
+            v-model="selectedRelationTypes" 
+            multiple 
+            collapse-tags
+            clearable 
+            placeholder="筛选关系类型" 
+            size="small"
+          >
             <el-option
               v-for="type in relationTypes"
               :key="type"
               :label="type"
               :value="type"
-            />
+            >
+              <span style="display: flex; align-items: center;">
+                <span class="relation-color-dot" :style="{backgroundColor: getRelationColor(type)}"></span>
+                {{ type }}
+              </span>
+            </el-option>
           </el-select>
           
           <el-tooltip content="将图表导出为图片">
@@ -126,6 +138,19 @@
               <el-icon><Download /></el-icon>
             </el-button>
           </el-tooltip>
+        </div>
+        
+        <div class="relation-legend" v-if="relationTypes.length > 0">
+          <span 
+            v-for="type in relationTypes" 
+            :key="type" 
+            class="legend-item"
+            :class="{'legend-item-active': !selectedRelationTypes.length || selectedRelationTypes.includes(type)}"
+            @click="toggleRelationType(type)"
+          >
+            <span class="relation-color-dot" :style="{backgroundColor: getRelationColor(type)}"></span>
+            {{ type }}
+          </span>
         </div>
         
         <div class="graph-view" ref="graphRef"></div>
@@ -201,7 +226,7 @@ const graphRef = ref(null)
 const graphChart = ref(null)
 const graphDepth = ref(1)
 const graphMode = ref('force')
-const selectedRelationType = ref('')
+const selectedRelationTypes = ref([])
 const selectedNode = ref(null)
 
 // 计算属性：判断是否有缓存的关系图
@@ -252,7 +277,7 @@ watch(graphMode, () => {
 })
 
 // 监听关系类型筛选变化
-watch(selectedRelationType, () => {
+watch(selectedRelationTypes, () => {
   if (analysisStore.relationshipGraph) {
     nextTick(() => {
       renderGraph()
@@ -407,8 +432,8 @@ function renderGraph() {
   const graph = analysisStore.relationshipGraph
   
   // 过滤关系
-  const filteredEdges = selectedRelationType.value
-    ? graph.edges.filter(edge => edge.relation === selectedRelationType.value)
+  const filteredEdges = selectedRelationTypes.value.length
+    ? graph.edges.filter(edge => selectedRelationTypes.value.includes(edge.relation))
     : graph.edges
   
   // 获取有效节点ID集合
@@ -455,10 +480,31 @@ function renderGraph() {
         source_id: edge.source_id,
         target_id: edge.target_id,
         value: edge.relation,
+        // 为边添加标签，显示关系类型
+        label: {
+          show: true,
+          formatter: edge.relation,
+          fontSize: 12,
+          color: getRelationColor(edge.relation),
+          backgroundColor: 'rgba(255, 255, 255, 0.7)',
+          padding: [2, 4],
+          borderRadius: 2
+        },
         lineStyle: {
           width: edge.importance ? edge.importance * 1 : 2,
           curveness: 0.2,
-          color: getRelationColor(edge.relation)
+          color: getRelationColor(edge.relation),
+          type: getRelationLineType(edge.relation) // 使用不同的线条样式区分关系类型
+        },
+        emphasis: {
+          lineStyle: {
+            width: edge.importance ? edge.importance * 2 : 4,
+            shadowBlur: 5,
+            shadowColor: getRelationColor(edge.relation)
+          },
+          label: {
+            fontSize: 14
+          }
         },
         ...edge
       }
@@ -474,9 +520,22 @@ function renderGraph() {
         if (params.dataType === 'node') {
           return `<strong>${params.data.name}</strong><br/>${params.data.description || ''}`
         } else {
-          return `${params.data.source_name} <strong>${params.data.relation}</strong> ${params.data.target_name}`
+          return `<strong>关系详情</strong><br/>
+                 ${params.data.source_name} 
+                 <span style="color:${getRelationColor(params.data.relation)}">
+                   ${params.data.relation}
+                 </span> 
+                 ${params.data.target_name}<br/>
+                 <span style="font-size:12px;color:#666">${params.data.description || ''}</span>`
         }
-      }
+      },
+      backgroundColor: 'rgba(255, 255, 255, 0.9)',
+      borderColor: '#eee',
+      borderWidth: 1,
+      textStyle: {
+        color: '#333'
+      },
+      extraCssText: 'box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);'
     },
     legend: {
       data: Array.from(new Set(nodes.map(node => node.category))).map(category => ({
@@ -484,7 +543,13 @@ function renderGraph() {
       })),
       orient: 'vertical',
       right: 10,
-      top: 20
+      top: 20,
+      textStyle: {
+        color: '#666'
+      },
+      itemGap: 10,
+      itemWidth: 15,
+      itemHeight: 10
     },
     series: [{
       type: 'graph',
@@ -493,28 +558,53 @@ function renderGraph() {
       links: edges,
       edgeSymbol: ['none', 'arrow'],
       edgeSymbolSize: 8,
+      // 更好的视觉编码
+      itemStyle: {
+        borderWidth: 2,
+        borderColor: '#fff',
+        shadowColor: 'rgba(0, 0, 0, 0.2)',
+        shadowBlur: 5
+      },
       categories: Array.from(new Set(nodes.map(node => node.category))).map(category => ({
         name: category || '其他'
       })),
       roam: true,
+      draggable: true,  // 允许节点拖拽
+      focusNodeAdjacency: true,  // 鼠标悬停时突出相邻节点
       label: {
         position: 'right',
-        formatter: '{b}'
+        formatter: '{b}',
+        fontSize: 12,
+        color: '#333',
+        backgroundColor: 'rgba(255, 255, 255, 0.7)',
+        padding: [3, 5],
+        borderRadius: 3,
+        show: true
       },
       emphasis: {
         focus: 'adjacency',
         lineStyle: {
           width: 4
+        },
+        label: {
+          fontSize: 13,
+          fontWeight: 'bold'
+        },
+        itemStyle: {
+          shadowBlur: 10,
+          shadowColor: 'rgba(0, 0, 0, 0.3)'
         }
       },
       force: {
-        repulsion: 150,  // 增加节点间斥力，使图形更清晰
+        repulsion: 200,  // 增加节点间斥力，使图形更清晰
         gravity: 0.1,
-        edgeLength: [50, 100]
+        edgeLength: [80, 150],
+        friction: 0.6
       },
       lineStyle: {
         color: 'source',
-        curveness: 0.3
+        curveness: 0.3,
+        opacity: 0.8
       }
     }]
   }
@@ -580,6 +670,33 @@ function getRelationColor(relationType) {
   }
   
   return colorMap[relationType] || '#909399'
+}
+
+// 获取关系线条类型
+function getRelationLineType(relationType) {
+  const typeMap = {
+    '师徒': 'solid',
+    '朋友': 'dashed',
+    '敌人': 'dotted',
+    '亲人': 'solid',
+    '恋人': 'solid',
+    '同门': 'dashed',
+    '邻居': 'dotted',
+    '主仆': 'dashed',
+    '交易': 'dotted'
+  }
+  
+  return typeMap[relationType] || 'solid'
+}
+
+// 切换关系类型筛选
+function toggleRelationType(type) {
+  const index = selectedRelationTypes.value.indexOf(type)
+  if (index === -1) {
+    selectedRelationTypes.value.push(type)
+  } else {
+    selectedRelationTypes.value.splice(index, 1)
+  }
 }
 </script>
 
@@ -683,5 +800,47 @@ function getRelationColor(relationType) {
   font-size: 13px;
   margin-top: 5px;
   font-style: italic;
+}
+
+.relation-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 5px;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #666;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  opacity: 0.7;
+  transition: all 0.2s;
+}
+
+.legend-item:hover {
+  background-color: #eee;
+  opacity: 1;
+}
+
+.legend-item-active {
+  border-color: #dcdfe6;
+  background-color: #fff;
+  opacity: 1;
+}
+
+.relation-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  display: inline-block;
 }
 </style> 
