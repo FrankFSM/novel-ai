@@ -534,3 +534,271 @@ class OpenAIClient:
                     results["suggestions"].append("检查API密钥是否正确，以及账户余额是否充足")
         
         return results 
+
+    @staticmethod
+    async def analyze_characters(text: str) -> List[Dict[str, Any]]:
+        """从文本中分析所有人物角色
+        
+        Args:
+            text: 小说文本内容
+            
+        Returns:
+            角色列表，包含名称、描述、别名等信息
+        """
+        try:
+            # 如果配置为使用模拟数据，直接返回
+            if settings.USE_MOCK_DATA:
+                logger.info("已配置使用模拟数据，跳过API调用")
+                return OpenAIClient.generate_mock_characters_data()
+
+            system_prompt = """你是一个专业的小说分析助手。请分析输入的小说文本，提取出所有出现的角色，并提供详细信息。
+请按以下JSON格式输出结果：
+[
+    {
+        "name": "角色名称",
+        "alias": ["别名1", "别名2"],
+        "description": "角色详细描述，包括身份背景、性格特点等",
+        "importance": 1-5的重要性评分（5为最重要）
+    }
+]
+
+特别注意：
+1. 全面识别所有重要角色，包括主角、配角和有一定戏份的次要角色
+2. 提供详细的角色描述，总结其在故事中的身份、背景、性格特点
+3. 识别角色的所有别名和称呼
+4. 按角色在故事中的重要程度排序，主角排在前面
+5. 确保输出是合法的JSON格式
+6. 不要输出任何额外的解释或分析，只返回JSON数据
+"""
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text}
+            ]
+
+            # 初始化客户端
+            client = OpenAI(
+                api_key=settings.OPENAI_API_KEY,
+                base_url=settings.OPENAI_API_BASE
+            )
+            
+            # 调用API
+            response = client.chat.completions.create(
+                model=settings.OPENAI_API_MODEL,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=4000
+            )
+            
+            # 获取响应内容
+            content = response.choices[0].message.content
+            logger.info("\n===角色分析原始响应===\n%s", content)
+            
+            # 提取JSON内容
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                json_str = content
+            
+            try:
+                result = json.loads(json_str)
+                logger.info(f"成功解析角色分析结果，找到{len(result)}个角色")
+                return result
+            except json.JSONDecodeError as je:
+                logger.error(f"JSON解析错误: {str(je)}")
+                # 尝试清理内容
+                cleaned_content = OpenAIClient.clean_json_content(content)
+                return json.loads(cleaned_content)
+                
+        except Exception as e:
+            logger.error(f"角色分析失败: {str(e)}")
+            raise
+
+    @staticmethod
+    async def analyze_character_personality(text: str, character_name: str) -> Dict[str, Any]:
+        """分析指定角色的性格和特点
+        
+        Args:
+            text: 小说文本内容
+            character_name: 角色名称
+            
+        Returns:
+            角色性格分析结果
+        """
+        try:
+            # 如果配置为使用模拟数据，直接返回
+            if settings.USE_MOCK_DATA:
+                logger.info("已配置使用模拟数据，跳过API调用")
+                return OpenAIClient.generate_mock_character_personality()
+
+            system_prompt = f"""你是一个专业的文学角色分析师。请深入分析输入文本中的角色"{character_name}"，
+提取其性格特点、行为模式、心理动机和价值观等，并按以下JSON格式输出结果：
+
+{{
+    "name": "{character_name}",
+    "personality": ["性格特点1", "性格特点2", ...],
+    "traits": [
+        {{
+            "trait": "特质名称",
+            "description": "详细解释",
+            "evidence": "文本中的证据"
+        }}
+    ],
+    "description": "全面的角色描述",
+    "analysis": "详细的性格分析，包括人物在故事中的发展变化",
+    "quotes": ["角色经典台词1", "角色经典台词2", ...]
+}}
+
+特别注意：
+1. 仔细分析角色的所有方面，包括公开展示的特质和潜在的性格层面
+2. 结合角色的行动、对话和故事中的表现来支持你的分析
+3. 性格特点应简明扼要，但traits部分要提供详细解释和文本证据
+4. 在description部分提供全面的角色概述
+5. 在analysis部分深入分析角色的性格复杂性和故事弧
+6. 提取角色在文本中的经典或代表性台词
+7. 确保输出是合法的JSON格式
+8. 分析应尽可能基于文本内容，避免过度推测
+"""
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text}
+            ]
+
+            # 初始化客户端
+            client = OpenAI(
+                api_key=settings.OPENAI_API_KEY,
+                base_url=settings.OPENAI_API_BASE
+            )
+            
+            # 调用API
+            response = client.chat.completions.create(
+                model=settings.OPENAI_API_MODEL,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=3000
+            )
+            
+            # 获取响应内容
+            content = response.choices[0].message.content
+            logger.info("\n===角色性格分析原始响应===\n%s", content)
+            
+            # 提取JSON内容
+            json_match = re.search(r'\{\s*"name".*\}', content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                json_str = content
+            
+            try:
+                result = json.loads(json_str)
+                logger.info(f"成功解析角色性格分析结果")
+                return result
+            except json.JSONDecodeError as je:
+                logger.error(f"JSON解析错误: {str(je)}")
+                # 尝试清理内容
+                cleaned_content = OpenAIClient.clean_json_content(content)
+                return json.loads(cleaned_content)
+                
+        except Exception as e:
+            logger.error(f"角色性格分析失败: {str(e)}")
+            raise
+    
+    @staticmethod
+    def clean_json_content(content: str) -> str:
+        """清理并修复JSON内容
+        
+        Args:
+            content: 原始响应内容
+            
+        Returns:
+            清理后的JSON字符串
+        """
+        # 移除包含"```json"和"```"的标记
+        content = re.sub(r'```json\s*', '', content)
+        content = re.sub(r'```\s*', '', content)
+        
+        # 移除开头可能的解释文本
+        json_start = content.find('{')
+        json_array_start = content.find('[')
+        
+        if json_start == -1 and json_array_start == -1:
+            return content
+            
+        if json_start == -1:
+            start_pos = json_array_start
+        elif json_array_start == -1:
+            start_pos = json_start
+        else:
+            start_pos = min(json_start, json_array_start)
+            
+        content = content[start_pos:]
+        
+        # 移除末尾可能的额外文本
+        json_end = content.rfind('}')
+        json_array_end = content.rfind(']')
+        
+        if json_end == -1 and json_array_end == -1:
+            return content
+            
+        if json_end == -1:
+            end_pos = json_array_end + 1
+        elif json_array_end == -1:
+            end_pos = json_end + 1
+        else:
+            end_pos = max(json_end, json_array_end) + 1
+            
+        content = content[:end_pos]
+        
+        return content
+    
+    @staticmethod
+    def generate_mock_characters_data() -> List[Dict[str, Any]]:
+        """生成模拟的角色分析数据（用于测试）"""
+        return [
+            {
+                "name": "林黛玉",
+                "alias": ["颦颦", "潇湘妃子"],
+                "description": "贾府的表小姐，性格多愁善感，诗才出众，与贾宝玉青梅竹马。",
+                "importance": 5
+            },
+            {
+                "name": "贾宝玉",
+                "alias": ["二爷", "天缘宝玉"],
+                "description": "贾府嫡子，生性淡泊功名，重情重义，与林黛玉、薛宝钗都有感情纠葛。",
+                "importance": 5
+            },
+            {
+                "name": "薛宝钗",
+                "alias": ["宝姐姐"],
+                "description": "薛家千金，性格温婉端庄，世故圆滑，与贾宝玉有婚约。",
+                "importance": 4
+            }
+        ]
+    
+    @staticmethod
+    def generate_mock_character_personality() -> Dict[str, Any]:
+        """生成模拟的角色性格分析数据（用于测试）"""
+        return {
+            "name": "林黛玉",
+            "personality": ["敏感", "多愁善感", "才华横溢", "骄傲", "孤独"],
+            "traits": [
+                {
+                    "trait": "敏感",
+                    "description": "对周围环境和他人言行极为敏感",
+                    "evidence": "每每因小事而伤心落泪"
+                },
+                {
+                    "trait": "诗才出众",
+                    "description": "天生的诗词天赋",
+                    "evidence": "葬花吟等名作"
+                }
+            ],
+            "description": "林黛玉是《红楼梦》中的女主角，贾母的外孙女，父母双亡后被接到贾府居住。她聪慧敏感，诗才出众，但体弱多病，性格孤傲。",
+            "analysis": "林黛玉的性格复杂，表面娇弱但内心坚强，对贾宝玉有着深厚的感情。她的多愁善感部分源于自身处境，作为寄人篱下的孤女，时刻感到不安全感。",
+            "quotes": [
+                "一年三百六十日，风刀霜剑严相逼。",
+                "花谢花飞花满天，红消香断有谁怜？"
+            ]
+        } 
