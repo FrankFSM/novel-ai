@@ -138,13 +138,13 @@ class OpenAIClient:
                 logger.info("已配置使用模拟数据，跳过API调用")
                 return OpenAIClient.generate_mock_relationship_data()
 
-            system_prompt = """你是一个专业的小说分析助手。请深入分析输入的文本，提取出所有人物及其关系，并按以下JSON格式输出：
+            system_prompt = """你是一个专业的文学分析师，专注于提取小说中的人物关系网络。分析文本中所有角色及其关系，并以JSON格式输出：
 {
     "nodes": [
         {
             "id": 1,
             "name": "人物名称",
-            "description": "人物描述",
+            "description": "人物详细描述",
             "importance": 1-5的重要性评分
         }
     ],
@@ -152,27 +152,30 @@ class OpenAIClient:
         {
             "source_id": 1,
             "target_id": 2,
-            "source_name": "源节点人物名称",
-            "target_name": "目标节点人物名称",
+            "source_name": "源角色名称",
+            "target_name": "目标角色名称",
             "relation": "关系类型",
-            "description": "关系描述",
-            "importance": 1-5的重要性评分
+            "description": "关系详细描述及证据",
+            "importance": 0.1-1.0的关系重要性评分
         }
     ]
 }
 
-特别注意：
-1. 请全面识别所有直接和间接的人物关系
-2. 注意识别隐含的关系，例如：
-   - 如果A是B的师傅，B是C的师兄弟，那么A也是C的师傅
-   - 如果多人被称为同门，应确保它们与门派掌门/师傅都建立关系
-3. 对于家庭关系，要充分建立家庭成员之间的所有关联
-4. 每个人物都应该有唯一的id
-5. 关系是有向的，source指向target
-6. 重要性评分1-5，5分最重要
-7. 同一对人物之间可能存在多种关系，应分别列出
-8. 请确保输出是合法的JSON格式
-9. 不要输出任何额外的解释或分析，只返回JSON数据
+关键要求：
+1. 分析所有角色，包括背景角色（如"姓阮的外乡铁匠"）
+2. 标准化角色名称：
+   - 统一命名格式，例如"卖鱼的中年人"和"卖鱼中年人"应识别为同一角色
+   - 将相似描述的同一角色合并为一个实体
+   - 对无明确姓名的角色，使用职业+特征+性别/年龄格式
+3. 关注以下关系类型：
+   - 师徒关系（如刘羡阳和姚老头）
+   - 交易关系（如锦衣少年与陈平安）
+   - 社交关系、敌对关系、主仆关系、家族关系
+4. 为不确定姓名的角色使用描述作为名称
+5. 每个角色使用唯一ID
+6. 提供关系的文本证据
+7. 角色重要性1-5分，关系重要性0.1-1.0
+8. 返回纯JSON，不含额外解释
 """
             
             messages = [
@@ -191,7 +194,7 @@ class OpenAIClient:
                 model=settings.OPENAI_API_MODEL,
                 messages=messages,
                 temperature=0.7,
-                max_tokens=2000
+                max_tokens=3000
             )
             
             # 获取响应内容
@@ -215,7 +218,7 @@ class OpenAIClient:
                 try:
                     data = json.loads(cleaned_content)
                     if "nodes" in data and "edges" in data:
-                        logger.info("方法1成功：直接解析")
+                        logger.info(f"方法1成功：直接解析，找到{len(data['nodes'])}个角色，{len(data['edges'])}个关系")
                         return data
                 except json.JSONDecodeError:
                     pass
@@ -227,7 +230,7 @@ class OpenAIClient:
                     if match:
                         data = json.loads(match.group())
                         if "nodes" in data and "edges" in data:
-                            logger.info("方法2成功：提取大括号内容")
+                            logger.info(f"方法2成功：提取大括号内容，找到{len(data['nodes'])}个角色，{len(data['edges'])}个关系")
                             return data
                 except (json.JSONDecodeError, AttributeError):
                     pass
@@ -239,7 +242,7 @@ class OpenAIClient:
                     if match:
                         data = json.loads(match.group(1))
                         if "nodes" in data and "edges" in data:
-                            logger.info("方法3成功：从代码块提取")
+                            logger.info(f"方法3成功：从代码块提取，找到{len(data['nodes'])}个角色，{len(data['edges'])}个关系")
                             return data
                 except (json.JSONDecodeError, AttributeError):
                     pass
@@ -548,24 +551,32 @@ class OpenAIClient:
         try:
             logger.info("开始分析小说角色...")
 
-            system_prompt = """你是一个专业的小说分析助手。请分析输入的小说文本，提取出所有出现的角色，并提供详细信息。
-请按以下JSON格式输出结果：
+            system_prompt = """你是一个专业的小说分析助手。全面提取输入文本中所有角色并以JSON格式输出：
 [
     {
         "name": "角色名称",
         "alias": ["别名1", "别名2"],
-        "description": "角色详细描述，包括身份背景、性格特点等",
-        "importance": 1-5的重要性评分（5为最重要）
+        "description": "角色详细描述",
+        "importance": 1-5的重要性评分
     }
 ]
 
-特别注意：
-1. 全面识别所有重要角色，包括主角、配角和有一定戏份的次要角色
-2. 提供详细的角色描述，总结其在故事中的身份、背景、性格特点
-3. 识别角色的所有别名和称呼
-4. 按角色在故事中的重要程度排序，主角排在前面
-5. 确保输出是合法的JSON格式
-6. 不要输出任何额外的解释或分析，只返回JSON数据
+分析要求：
+1. 分析所有角色，包括背景角色（如"姓阮的外乡铁匠"）和间接提及的角色
+2. 对无明确姓名角色，使用标准化描述作为名称：
+   - 统一命名格式，例如"卖鱼的中年人"和"卖鱼中年人"应合并为一个角色
+   - 将相似描述的同一角色视为一个实体
+   - 职业+特征+性别/年龄作为标准格式，如"卖鱼的中年人"
+3. 重要性评分标准：
+   - 5分：主角
+   - 4分：重要配角
+   - 3分：次要多次出场角色
+   - 2分：偶尔出场角色
+   - 1分：仅出现一次的背景角色
+4. 详细描述角色身份、背景、性格特点和故事作用
+5. 记录所有别名和称呼方式，不同表述的背景角色应使用别名字段记录变体
+6. 按重要性排序
+7. 返回纯JSON，不含额外解释
 """
             
             messages = [
@@ -814,23 +825,40 @@ class OpenAIClient:
                 logger.info("已配置使用模拟数据，跳过API调用")
                 return OpenAIClient.generate_mock_relationship_data()
             
-            system_prompt = "你是一位专业的文学分析师，专长于分析小说中的人物关系。"
+            system_prompt = """你是一位专业的文学分析师，专长于分析小说中角色关系网络。"""
             
-            user_prompt = f"分析下面的小说内容，重点关注并提取以下角色之间的关系: {character_list}。\n\n"
-            user_prompt += "只分析列出的角色，不要添加未在列表中的角色。\n\n"
-            user_prompt += "请以JSON格式返回结果，包含以下结构:\n"
-            user_prompt += "{\n"
-            user_prompt += '  "edges": [\n'
-            user_prompt += '    {\n'
-            user_prompt += '      "source_name": "角色A名称",\n'
-            user_prompt += '      "target_name": "角色B名称",\n'
-            user_prompt += '      "relation": "关系类型(如朋友、敌人、师徒等)",\n'
-            user_prompt += '      "description": "关系描述",\n'
-            user_prompt += '      "importance": 0.8  // 关系重要性(0.0-1.0)\n'
-            user_prompt += '    }\n'
-            user_prompt += '  ]\n'
-            user_prompt += '}\n\n'
-            user_prompt += f"以下是小说内容:\n{content[:70000]}"  # 限制内容长度
+            user_prompt = f"""分析小说内容，提取所有角色间的关系，特别关注：{character_list}
+
+提取要求：
+1. 全面分析所有角色关系，包括背景角色（如"姓阮的外乡铁匠"）
+2. 特别关注以下关系类型：
+   - 师徒关系（如刘羡阳和姚老头）
+   - 交易关系（如锦衣少年与陈平安）
+   - 社交、敌对、主仆、家族关系
+3. 提供关系描述和文本证据
+4. 为每个关系评估重要性（0.1-1.0）
+5. 使用标准化的角色名称：
+   - 确保"卖鱼中年人"和"卖鱼的中年人"等相似描述被识别为同一角色
+   - 严格使用提供的角色列表中的准确名称
+   - 对未命名角色，使用统一的描述格式
+
+以JSON格式返回：
+{{
+  "edges": [
+    {{
+      "source_name": "角色A",
+      "target_name": "角色B",
+      "relation": "关系类型",
+      "description": "关系描述与证据",
+      "importance": 0.1-1.0
+    }}
+  ]
+}}
+
+重要提示：宁可多报关系也不要遗漏，返回纯JSON格式。
+
+以下是小说内容:
+{content[:70000]}"""  # 限制内容长度
             
             # 初始化客户端
             client = OpenAI(
@@ -857,7 +885,7 @@ class OpenAIClient:
             try:
                 # 尝试直接解析
                 result = json.loads(content)
-                logger.info("成功解析JSON响应")
+                logger.info(f"成功解析JSON响应，找到{len(result.get('edges', []))}个关系")
             except json.JSONDecodeError as e:
                 logger.warning(f"直接JSON解析失败: {str(e)}，尝试清理响应内容")
                 
@@ -878,7 +906,7 @@ class OpenAIClient:
                     match = re.search(pattern, cleaned_content)
                     if match:
                         result = json.loads(match.group())
-                        logger.info("通过正则表达式提取并成功解析JSON")
+                        logger.info(f"通过正则表达式提取并成功解析JSON，找到{len(result.get('edges', []))}个关系")
                     else:
                         # 如果找不到有效的JSON，返回空结果
                         logger.error("无法从响应中提取有效的JSON数据")

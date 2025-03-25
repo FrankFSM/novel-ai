@@ -47,14 +47,17 @@ async def get_relationship_graph(
         
         try:
             # 构建分析提示，确保捕获所有关系类型
-            analysis_hint = """务必确保分析以下特定关系：
-1. 师徒关系 - 例如刘羡阳和姚老头之间的师徒关系
-2. 交易关系 - 例如锦衣少年与其交易对象（如陈平安）的关系
-3. 敌对/竞争关系 - 如主角与敌对角色的关系
-4. 社交关系 - 如锦衣少年与宋集薪之间的互动关系
-5. 主仆关系 - 如主人与仆从的关系
-
-确保每一对重要角色之间的关系都被准确捕获，不要漏掉任何关系，特别是那些在文本中有明确描述但容易被忽略的关系。"""
+            analysis_hint = """请全面分析所有角色和关系：
+1. 识别所有角色，包括背景角色（如"姓阮的外乡铁匠"）
+2. 标准化角色名称，将"卖鱼中年人"和"卖鱼的中年人"等识别为同一角色
+3. 重点关注以下关系：
+   - 师徒关系（刘羡阳与姚老头）
+   - 交易关系（锦衣少年与陈平安）
+   - 社交关系（锦衣少年与宋集薪）
+   - 敌对关系、主仆关系、家族关系
+4. 对无明确姓名的角色使用统一格式的描述作为名称
+5. 提供详细的关系证据和描述
+6. 宁可多报也不要遗漏任何角色关系"""
 
             # 直接调用OpenAI API提取角色关系
             relationship_data = await OpenAIClient.extract_character_relationships(content + f"\n\n[分析提示: {analysis_hint}]")
@@ -123,6 +126,19 @@ async def get_relationship_graph(
             
             # 提交更改
             db.commit()
+            
+            # 检查特定角色关系是否存在（用于调试）
+            expected_relationships = [
+                ("刘羡阳", "姚老头"),
+                ("锦衣少年", "陈平安"),
+                ("锦衣少年", "宋集薪")
+            ]
+            
+            # 当前已分析的关系
+            current_edges = [(edge["source_name"], edge["target_name"]) for edge in edges]
+            for source, target in expected_relationships:
+                if (source, target) not in current_edges and (target, source) not in current_edges:
+                    logger.warning(f"警告：未能分析出 '{source}' 和 '{target}' 之间的关系")
             
             # 重新获取所有角色用于构建响应
             characters = db.query(novel.Character).filter(
