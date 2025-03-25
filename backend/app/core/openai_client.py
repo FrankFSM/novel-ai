@@ -546,10 +546,7 @@ class OpenAIClient:
             角色列表，包含名称、描述、别名等信息
         """
         try:
-            # 如果配置为使用模拟数据，直接返回
-            if settings.USE_MOCK_DATA:
-                logger.info("已配置使用模拟数据，跳过API调用")
-                return OpenAIClient.generate_mock_characters_data()
+            logger.info("开始分析小说角色...")
 
             system_prompt = """你是一个专业的小说分析助手。请分析输入的小说文本，提取出所有出现的角色，并提供详细信息。
 请按以下JSON格式输出结果：
@@ -627,10 +624,7 @@ class OpenAIClient:
             角色性格分析结果
         """
         try:
-            # 如果配置为使用模拟数据，直接返回
-            if settings.USE_MOCK_DATA:
-                logger.info("已配置使用模拟数据，跳过API调用")
-                return OpenAIClient.generate_mock_character_personality()
+            logger.info(f"开始分析角色 '{character_name}' 的性格...")
 
             system_prompt = f"""你是一个专业的文学角色分析师。请深入分析输入文本中的角色"{character_name}"，
 提取其性格特点、行为模式、心理动机和价值观等，并按以下JSON格式输出结果：

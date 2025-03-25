@@ -60,6 +60,7 @@ class CharacterAnalysisResponse(BaseModel):
     alias: Optional[List[str]] = None
     description: Optional[str] = None
     first_appearance: Optional[int] = None
+    importance: Optional[int] = None
 
 class NovelCharactersResponse(BaseModel):
     """小说角色列表响应"""

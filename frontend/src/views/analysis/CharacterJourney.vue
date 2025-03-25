@@ -24,6 +24,7 @@
               placeholder="选择角色"
               @change="handleCharacterChange"
               :disabled="!selectedNovel || !characters.length"
+              :loading="loading"
             >
               <el-option
                 v-for="character in characters"
@@ -32,6 +33,15 @@
                 :value="character.id"
               />
             </el-select>
+            
+            <el-button 
+              type="primary" 
+              @click="analyzeCharacters" 
+              :disabled="!selectedNovel"
+              :loading="loading"
+            >
+              分析角色
+            </el-button>
             
             <el-button 
               type="primary" 
@@ -44,6 +54,12 @@
           </div>
         </div>
       </template>
+      
+      <!-- 正在加载角色列表 -->
+      <div v-if="loading" class="loading-container">
+        <el-skeleton :rows="5" animated />
+        <div class="loading-text">正在分析小说角色...</div>
+      </div>
       
       <!-- 尚未选择小说或角色的提示 -->
       <el-empty 
@@ -239,6 +255,7 @@ import { useAnalysisStore } from '@/store/analysis'
 import { ElMessage } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import { characterApi } from '@/api'
 
 const router = useRouter()
 const route = useRoute()
@@ -249,6 +266,7 @@ const analysisStore = useAnalysisStore()
 const selectedNovel = ref(null)
 const selectedCharacter = ref(null)
 const characters = ref([])
+const loading = ref(false)
 const activeTab = ref('stages')
 const emotionChart = ref(null)
 const emotionChartRef = ref(null)
@@ -300,17 +318,31 @@ watch(characterJourney, async () => {
 })
 
 // 加载角色列表
-async function loadCharacters(novelId) {
+async function loadCharacters(novelId, forceRefresh = false) {
+  if (!novelId) return
+  
   try {
-    // TODO: 实际项目中应从API获取
-    // const response = await novelApi.getNovelCharacters(novelId)
-    // characters.value = response.data
-    
-    // 模拟数据
-    characters.value = generateMockCharacters()
-  } catch (error) {
-    ElMessage.error('获取角色列表失败')
     characters.value = []
+    loading.value = true
+    
+    // 调用新API获取角色列表
+    const data = await characterApi.analyzeCharacters(novelId, forceRefresh)
+    console.log('角色分析API响应:', data)
+    
+    // API函数已经提取了data部分
+    if (data && Array.isArray(data)) {
+      characters.value = data
+      ElMessage.success(`成功加载小说角色，共发现${data.length}个角色`)
+    } else {
+      ElMessage.warning('获取到的角色列表为空')
+      characters.value = []
+    }
+  } catch (error) {
+    console.error('获取角色列表失败:', error)
+    ElMessage.error('获取角色列表失败: ' + (error.message || '未知错误'))
+    characters.value = []
+  } finally {
+    loading.value = false
   }
 }
 
@@ -492,21 +524,15 @@ window.addEventListener('resize', () => {
   }
 })
 
-// 生成模拟角色数据
-function generateMockCharacters() {
-  const count = 10
-  const characters = []
+// 手动分析角色按钮处理
+async function analyzeCharacters() {
+  if (!selectedNovel.value) return
   
-  const names = ['林远', '沈清雪', '张天志', '李墨', '王霜', '赵云', '钱多多', '孙小圣', '周天', '吴明']
-  
-  for (let i = 0; i < count; i++) {
-    characters.push({
-      id: i + 1,
-      name: names[i % names.length]
-    })
+  try {
+    await loadCharacters(selectedNovel.value, true) // 传递true表示强制刷新
+  } catch (error) {
+    ElMessage.error('分析角色失败')
   }
-  
-  return characters
 }
 </script>
 

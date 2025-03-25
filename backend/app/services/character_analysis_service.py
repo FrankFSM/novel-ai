@@ -35,7 +35,8 @@ async def analyze_novel_characters(db: Session, novel_id: int, force_refresh: bo
                 "name": character.name,
                 "alias": character.alias,
                 "description": character.description,
-                "first_appearance": character.first_appearance
+                "first_appearance": character.first_appearance,
+                "importance": character.importance
             }
             for character in db_novel.characters
         ]
@@ -48,7 +49,13 @@ async def analyze_novel_characters(db: Session, novel_id: int, force_refresh: bo
     
     # 使用AI分析角色
     try:
+        logger.info("调用OpenAI API分析角色...")
         characters_data = await OpenAIClient.analyze_characters(content)
+        logger.info(f"成功获取角色分析结果，共{len(characters_data)}个角色")
+        
+        # 记录所有操作，用于调试和记录
+        created_count = 0
+        updated_count = 0
         
         # 保存分析结果到数据库
         for character_data in characters_data:
@@ -60,24 +67,31 @@ async def analyze_novel_characters(db: Session, novel_id: int, force_refresh: bo
             
             if existing:
                 # 更新现有角色
+                logger.info(f"更新现有角色: {character_data['name']}")
                 existing.description = character_data.get("description", existing.description)
                 existing.alias = character_data.get("alias", existing.alias)
+                existing.importance = character_data.get("importance", existing.importance)
+                updated_count += 1
             else:
                 # 创建新角色
+                logger.info(f"创建新角色: {character_data['name']}")
                 new_character = novel.Character(
                     novel_id=novel_id,
                     name=character_data["name"],
                     alias=character_data.get("alias", []),
-                    description=character_data.get("description", "")
+                    description=character_data.get("description", ""),
+                    importance=character_data.get("importance", 1)
                 )
                 db.add(new_character)
+                created_count += 1
         
         db.commit()
+        logger.info(f"角色分析处理完成: 创建了{created_count}个新角色，更新了{updated_count}个现有角色")
         
         # 返回更新后的角色列表
         updated_characters = db.query(novel.Character).filter(
             novel.Character.novel_id == novel_id
-        ).all()
+        ).order_by(novel.Character.importance.desc()).all()
         
         return [
             {
@@ -85,7 +99,8 @@ async def analyze_novel_characters(db: Session, novel_id: int, force_refresh: bo
                 "name": character.name,
                 "alias": character.alias,
                 "description": character.description,
-                "first_appearance": character.first_appearance
+                "first_appearance": character.first_appearance,
+                "importance": character.importance
             }
             for character in updated_characters
         ]

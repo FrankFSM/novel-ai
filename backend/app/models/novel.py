@@ -67,6 +67,7 @@ class Character(Base):
     alias = Column(JSON, nullable=True)  # 别名列表
     description = Column(Text, nullable=True)
     first_appearance = Column(Integer, ForeignKey("chapters.id"), nullable=True)  # 首次出场章节
+    importance = Column(Integer, default=1)  # 重要性评分（1-5）
     
     # 关系
     novel = relationship("Novel", back_populates="characters")
