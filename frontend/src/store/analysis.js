@@ -12,10 +12,24 @@ export const useAnalysisStore = defineStore('analysis', () => {
   const loading = ref(false)
   const error = ref(null)
   
+  // 缓存状态
+  const analysisCache = ref({
+    relationship: {}, // 格式: {novelId_characterId_depth: data}
+  })
+  
   // 获取关系图
-  async function fetchRelationshipGraph(novelId, characterId = null, depth = 1) {
+  async function fetchRelationshipGraph(novelId, characterId = null, depth = 1, forceRefresh = false) {
     loading.value = true
     error.value = null
+    
+    const cacheKey = `${novelId}_${characterId || 'null'}_${depth}`
+    
+    // 如果缓存中有数据且不是强制刷新，则使用缓存数据
+    if (!forceRefresh && analysisCache.value.relationship[cacheKey]) {
+      relationshipGraph.value = analysisCache.value.relationship[cacheKey]
+      loading.value = false
+      return relationshipGraph.value
+    }
     
     try {
       const response = await analysisApi.getRelationshipGraph({
@@ -25,6 +39,10 @@ export const useAnalysisStore = defineStore('analysis', () => {
       })
       
       relationshipGraph.value = response.data
+      
+      // 将数据添加到缓存
+      analysisCache.value.relationship[cacheKey] = response.data
+      
       return response.data
     } catch (err) {
       error.value = err.message || '获取关系图失败'
@@ -32,6 +50,12 @@ export const useAnalysisStore = defineStore('analysis', () => {
     } finally {
       loading.value = false
     }
+  }
+  
+  // 检查关系图是否已缓存
+  function hasRelationshipCache(novelId, characterId = null, depth = 1) {
+    const cacheKey = `${novelId}_${characterId || 'null'}_${depth}`
+    return !!analysisCache.value.relationship[cacheKey]
   }
   
   // 获取时间线
@@ -134,6 +158,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
     fetchCharacterJourney,
     fetchItemLineage,
     fetchLocationEvents,
+    hasRelationshipCache,
     reset
   }
 }) 

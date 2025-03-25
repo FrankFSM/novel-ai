@@ -49,11 +49,20 @@
             
             <el-button 
               type="primary" 
-              @click="generateGraph" 
+              @click="generateGraph()" 
               :disabled="!selectedNovel"
               :loading="analysisStore.loading"
             >
               生成关系图
+            </el-button>
+            
+            <el-button
+              type="warning"
+              @click="generateGraph(true)"
+              :disabled="!selectedNovel || analysisStore.loading"
+              v-if="hasCachedGraph"
+            >
+              重新分析
             </el-button>
           </div>
         </div>
@@ -89,7 +98,10 @@
         v-else-if="!analysisStore.relationshipGraph" 
         description="点击上方按钮生成关系网络图"
       >
-        <el-button type="primary" @click="generateGraph">生成关系图</el-button>
+        <div>
+          <el-button type="primary" @click="generateGraph()">生成关系图</el-button>
+          <p v-if="hasCachedGraph" class="text-muted">已有缓存数据，点击生成按钮可快速加载</p>
+        </div>
       </el-empty>
       
       <!-- 关系图 -->
@@ -129,9 +141,32 @@
                 :key="relation.id"
                 :type="getRelationTagType(relation.type)"
                 style="margin: 0 5px 5px 0"
+                :effect="relation.direction === 'outgoing' ? 'light' : 'plain'"
               >
-                {{ relation.source }} {{ relation.type }} {{ relation.target }}
+                <el-tooltip 
+                  v-if="relation.description" 
+                  :content="relation.description" 
+                  placement="top"
+                >
+                  <span>
+                    {{ relation.source }} 
+                    <el-icon v-if="relation.direction === 'outgoing'" style="margin: 0 2px;"><ArrowRight /></el-icon>
+                    <el-icon v-else style="margin: 0 2px;"><ArrowLeft /></el-icon>
+                    {{ relation.type }} 
+                    {{ relation.target }}
+                  </span>
+                </el-tooltip>
+                <span v-else>
+                  {{ relation.source }} 
+                  <el-icon v-if="relation.direction === 'outgoing'" style="margin: 0 2px;"><ArrowRight /></el-icon>
+                  <el-icon v-else style="margin: 0 2px;"><ArrowLeft /></el-icon>
+                  {{ relation.type }} 
+                  {{ relation.target }}
+                </span>
               </el-tag>
+              <div v-if="selectedNodeRelations.length === 0" class="no-relations">
+                暂无关联的角色关系
+              </div>
             </div>
           </div>
           <div v-else class="graph-hint">
@@ -150,7 +185,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/store/novel'
 import { useAnalysisStore } from '@/store/analysis'
 import { ElMessage } from 'element-plus'
-import { Download } from '@element-plus/icons-vue'
+import { Download, ArrowRight, ArrowLeft } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
 const router = useRouter()
@@ -169,6 +204,16 @@ const graphMode = ref('force')
 const selectedRelationType = ref('')
 const selectedNode = ref(null)
 
+// 计算属性：判断是否有缓存的关系图
+const hasCachedGraph = computed(() => {
+  if (!selectedNovel.value) return false
+  return analysisStore.hasRelationshipCache(
+    selectedNovel.value,
+    selectedCharacter.value,
+    graphDepth.value
+  )
+})
+
 // 从路由参数中获取小说ID和角色ID
 onMounted(async () => {
   if (novelStore.novels.length === 0) {
@@ -186,8 +231,14 @@ onMounted(async () => {
       selectedCharacter.value = characterId
     }
     
-    // 自动生成图表
-    generateGraph()
+    // 检查是否有缓存，有则加载，没有则自动生成新的图表
+    if (analysisStore.hasRelationshipCache(novelId, characterId, graphDepth.value)) {
+      // 直接使用缓存数据，不发送API请求
+      await generateGraph(false)
+    } else {
+      // 没有缓存数据时，自动生成新的图表
+      await generateGraph(false)
+    }
   }
 })
 
@@ -225,17 +276,41 @@ const relationTypes = computed(() => {
 const selectedNodeRelations = computed(() => {
   if (!selectedNode.value || !analysisStore.relationshipGraph) return []
   
-  return analysisStore.relationshipGraph.edges
-    .filter(edge => 
-      edge.source_id === selectedNode.value.id || 
-      edge.target_id === selectedNode.value.id
-    )
-    .map(edge => ({
+  // 获取分析数据中的所有边
+  const allEdges = analysisStore.relationshipGraph.edges
+  
+  // 过滤出与当前选中节点相关的所有边
+  const relatedEdges = allEdges.filter(edge => 
+    edge.source_id === selectedNode.value.id || 
+    edge.target_id === selectedNode.value.id
+  )
+  
+  // 将边转换为更易于渲染的格式
+  return relatedEdges.map(edge => {
+    // 确定关系方向，使显示更有意义
+    let source, target, direction
+    
+    if (edge.source_id === selectedNode.value.id) {
+      // 当前节点是关系的源节点
+      source = selectedNode.value.name
+      target = edge.target_name
+      direction = 'outgoing'
+    } else {
+      // 当前节点是关系的目标节点
+      source = edge.source_name
+      target = selectedNode.value.name
+      direction = 'incoming'
+    }
+    
+    return {
       id: edge.id,
-      source: edge.source_name,
-      target: edge.target_name,
-      type: edge.relation
-    }))
+      source: source,
+      target: target,
+      type: edge.relation,
+      description: edge.description,
+      direction: direction
+    }
+  })
 })
 
 // 加载角色列表
@@ -288,15 +363,16 @@ function handleCharacterChange(characterId) {
 }
 
 // 生成关系图
-async function generateGraph() {
+async function generateGraph(forceRefresh = false) {
   if (!selectedNovel.value) return
   
   try {
-    // 调用后端API获取真实的关系网络数据
+    // 调用后端API获取真实的关系网络数据，添加forceRefresh参数
     await analysisStore.fetchRelationshipGraph(
       selectedNovel.value,
       selectedCharacter.value,
-      graphDepth.value
+      graphDepth.value,
+      forceRefresh
     )
     
     nextTick(() => {
@@ -345,7 +421,7 @@ function renderGraph() {
   // 过滤节点
   const filteredNodes = graph.nodes.filter(node => validNodeIds.has(node.id))
   
-  // 准备数据
+  // 准备数据 - 为echarts创建正确格式的节点和边
   const nodes = filteredNodes.map(node => ({
     id: node.id,
     name: node.name,
@@ -357,17 +433,38 @@ function renderGraph() {
     ...node
   }))
   
-  const edges = filteredEdges.map(edge => ({
-    source: edge.source_id,
-    target: edge.target_id,
-    value: edge.relation,
-    lineStyle: {
-      width: edge.importance ? edge.importance * 1 : 2,
-      curveness: 0.2,
-      color: getRelationColor(edge.relation)
-    },
-    ...edge
-  }))
+  // 创建一个从节点ID到数组索引的映射，解决边连接问题
+  const nodeIdMap = {}
+  nodes.forEach((node, index) => {
+    nodeIdMap[node.id] = index
+  })
+  
+  // 修改边的数据格式，确保source和target使用ECharts期望的格式
+  const edges = filteredEdges.map(edge => {
+    // 验证源节点和目标节点存在于节点列表中
+    const sourceIndex = nodeIdMap[edge.source_id]
+    const targetIndex = nodeIdMap[edge.target_id]
+    
+    // 只有当源节点和目标节点都存在时才创建边
+    if (sourceIndex !== undefined && targetIndex !== undefined) {
+      return {
+        // 使用节点数组索引作为source和target (ECharts默认行为)
+        source: sourceIndex,
+        target: targetIndex,
+        // 保留原始ID以便其他操作
+        source_id: edge.source_id,
+        target_id: edge.target_id,
+        value: edge.relation,
+        lineStyle: {
+          width: edge.importance ? edge.importance * 1 : 2,
+          curveness: 0.2,
+          color: getRelationColor(edge.relation)
+        },
+        ...edge
+      }
+    }
+    return null
+  }).filter(edge => edge !== null)  // 过滤掉无效的边
   
   // 配置选项
   const options = {
@@ -394,6 +491,8 @@ function renderGraph() {
       layout: graphMode.value,
       data: nodes,
       links: edges,
+      edgeSymbol: ['none', 'arrow'],
+      edgeSymbolSize: 8,
       categories: Array.from(new Set(nodes.map(node => node.category))).map(category => ({
         name: category || '其他'
       })),
@@ -409,7 +508,7 @@ function renderGraph() {
         }
       },
       force: {
-        repulsion: 100,
+        repulsion: 150,  // 增加节点间斥力，使图形更清晰
         gravity: 0.1,
         edgeLength: [50, 100]
       },
@@ -570,5 +669,19 @@ function getRelationColor(relationType) {
   color: #909399;
   text-align: center;
   padding: 20px 0;
+}
+
+.text-muted {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.no-relations {
+  color: #909399;
+  font-size: 13px;
+  margin-top: 5px;
+  font-style: italic;
 }
 </style> 
