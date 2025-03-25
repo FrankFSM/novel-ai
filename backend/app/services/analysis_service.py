@@ -36,6 +36,173 @@ async def get_relationship_graph(
     if not novel_obj:
         raise ValueError("小说不存在")
     
+    # 如果是强制刷新，直接调用OpenAI API重新分析
+    if force_refresh:
+        logger.info("强制刷新模式，将调用大语言模型进行关系重新分析")
+        
+        # 获取小说内容
+        content = novel_service.get_novel_chapters_content(db=db, novel_id=novel_id)
+        if not content:
+            raise ValueError("小说内容为空")
+        
+        try:
+            # 构建分析提示，确保捕获所有关系类型
+            analysis_hint = """务必确保分析以下特定关系：
+1. 师徒关系 - 例如刘羡阳和姚老头之间的师徒关系
+2. 交易关系 - 例如锦衣少年与其交易对象（如陈平安）的关系
+3. 敌对/竞争关系 - 如主角与敌对角色的关系
+4. 社交关系 - 如锦衣少年与宋集薪之间的互动关系
+5. 主仆关系 - 如主人与仆从的关系
+
+确保每一对重要角色之间的关系都被准确捕获，不要漏掉任何关系，特别是那些在文本中有明确描述但容易被忽略的关系。"""
+
+            # 直接调用OpenAI API提取角色关系
+            relationship_data = await OpenAIClient.extract_character_relationships(content + f"\n\n[分析提示: {analysis_hint}]")
+            
+            # 在数据库中删除现有关系（仅在强制刷新时）
+            existing_relationships = db.query(novel.Relationship).filter(
+                novel.Relationship.novel_id == novel_id
+            ).all()
+            
+            if existing_relationships:
+                for rel in existing_relationships:
+                    db.delete(rel)
+                db.flush()
+                logger.info(f"删除了 {len(existing_relationships)} 条现有关系")
+            
+            # 处理提取的关系
+            nodes = relationship_data.get("nodes", [])
+            edges = relationship_data.get("edges", [])
+            
+            logger.info(f"AI分析结果: 节点数={len(nodes)}, 边数={len(edges)}")
+            
+            # 保存角色数据
+            character_map = {}
+            for node in nodes:
+                # 检查角色是否已存在
+                existing_character = db.query(novel.Character).filter(
+                    novel.Character.novel_id == novel_id,
+                    novel.Character.name == node["name"]
+                ).first()
+                
+                if existing_character:
+                    # 更新现有角色
+                    existing_character.description = node.get("description", existing_character.description)
+                    existing_character.importance = node.get("importance", existing_character.importance)
+                    character_map[node["name"]] = existing_character.id
+                else:
+                    # 创建新角色
+                    new_character = novel.Character(
+                        name=node["name"],
+                        novel_id=novel_id,
+                        description=node.get("description", ""),
+                        importance=node.get("importance", 3)
+                    )
+                    db.add(new_character)
+                    db.flush()
+                    character_map[node["name"]] = new_character.id
+            
+            # 保存关系数据
+            for edge in edges:
+                source_name = edge["source_name"]
+                target_name = edge["target_name"]
+                
+                source_id = character_map.get(source_name)
+                target_id = character_map.get(target_name)
+                
+                if source_id and target_id:
+                    # 创建新的关系记录
+                    new_relationship = novel.Relationship(
+                        novel_id=novel_id,
+                        from_character_id=source_id,
+                        to_character_id=target_id,
+                        relation_type=edge.get("relation", "关系未知"),
+                        description=edge.get("description", "")
+                    )
+                    db.add(new_relationship)
+            
+            # 提交更改
+            db.commit()
+            
+            # 重新获取所有角色用于构建响应
+            characters = db.query(novel.Character).filter(
+                novel.Character.novel_id == novel_id
+            ).all()
+            
+            # 重新获取所有关系用于构建响应
+            relationships = db.query(novel.Relationship).filter(
+                novel.Relationship.novel_id == novel_id
+            ).all()
+            
+            # 构建节点和边的响应格式
+            response_nodes = []
+            response_edges = []
+            
+            # 构建节点映射
+            node_map = {}
+            for i, character in enumerate(characters):
+                node_id = i + 1
+                node_map[character.id] = node_id
+                
+                response_nodes.append({
+                    "id": node_id,
+                    "name": character.name,
+                    "value": 10 + (character.importance or 1) * 5,
+                    "character_id": character.id,
+                    "importance": character.importance or 1
+                })
+            
+            # 构建边
+            edge_id = 1
+            for relationship in relationships:
+                if relationship.from_character_id in node_map and relationship.to_character_id in node_map:
+                    source_id = node_map[relationship.from_character_id]
+                    target_id = node_map[relationship.to_character_id]
+                    
+                    from_char = next((c for c in characters if c.id == relationship.from_character_id), None)
+                    to_char = next((c for c in characters if c.id == relationship.to_character_id), None)
+                    
+                    if from_char and to_char:
+                        response_edges.append({
+                            "id": edge_id,
+                            "source_id": source_id,
+                            "target_id": target_id,
+                            "source_name": from_char.name,
+                            "target_name": to_char.name,
+                            "relation": relationship.relation_type,
+                            "description": relationship.description,
+                            "importance": 0.5 + (from_char.importance or 1) * 0.1 + (to_char.importance or 1) * 0.1
+                        })
+                        edge_id += 1
+            
+            # 构建并返回响应
+            result = {
+                "nodes": response_nodes,
+                "edges": response_edges
+            }
+            
+            # 如果指定了中心角色，过滤关系图
+            if character_id:
+                character = novel_service.get_character(db=db, character_id=character_id)
+                if character:
+                    result = filter_relationship_graph(
+                        graph_data=result,
+                        center_name=character.name,
+                        depth=depth
+                    )
+            
+            # 保存到数据库
+            save_relationship_graph(db, novel_id, character_id, depth, result)
+            
+            return result
+            
+        except Exception as e:
+            db.rollback()
+            logger.error(f"强制重新分析关系失败: {str(e)}")
+            # 如果重新分析失败，回退到使用现有关系
+            logger.info("回退到使用现有关系数据")
+            # 继续下面的代码，使用现有关系构建图
+    
     # 如果不是强制刷新，尝试从数据库获取缓存的关系图
     if not force_refresh:
         logger.info(f"尝试获取缓存数据 (force_refresh={force_refresh})")
