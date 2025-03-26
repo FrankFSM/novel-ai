@@ -1,225 +1,105 @@
 <template>
   <div class="location-events-container">
-    <el-card shadow="never">
+    <el-card shadow="never" v-loading="loading">
       <template #header>
         <div class="page-header">
-          <h2>地点事件分析</h2>
-          <div class="header-actions">
-            <el-select 
-              v-model="selectedNovel" 
-              placeholder="请选择小说" 
-              @change="handleNovelChange"
-              :loading="novelStore.loading"
-            >
-              <el-option
-                v-for="novel in novelStore.novels"
-                :key="novel.id"
-                :label="novel.title"
-                :value="novel.id"
-              />
-            </el-select>
-            
-            <el-select
-              v-model="selectedLocation"
-              placeholder="选择地点"
-              @change="handleLocationChange"
-              :disabled="!selectedNovel || !locations.length"
-            >
-              <el-option
-                v-for="location in locations"
-                :key="location.id"
-                :label="location.name"
-                :value="location.id"
-              />
-            </el-select>
-            
-            <el-button 
-              type="primary" 
-              @click="generateLocationEvents" 
-              :disabled="!selectedNovel || !selectedLocation"
-              :loading="analysisStore.loading"
-            >
-              生成地点分析
+          <div class="header-left">
+            <el-button type="text" @click="goBack">
+              <el-icon><ArrowLeft /></el-icon> 返回
             </el-button>
+            <h2 v-if="locationDetail">{{ locationDetail.name }} - 事件</h2>
+            <h2 v-else>地点事件</h2>
           </div>
         </div>
       </template>
       
-      <!-- 尚未选择小说或地点的提示 -->
-      <el-empty 
-        v-if="!selectedNovel || !selectedLocation" 
-        description="请从上方选择小说和地点"
-      >
-        <el-button type="primary" @click="navigateToNovelList">浏览小说列表</el-button>
-      </el-empty>
-      
       <!-- 加载中状态 -->
-      <div v-else-if="analysisStore.loading" class="loading-container">
-        <el-skeleton :rows="15" animated />
+      <div v-if="loading" class="loading-container">
+        <el-skeleton :rows="10" animated />
       </div>
       
-      <!-- 错误状态 -->
-      <el-result 
-        v-else-if="analysisStore.error" 
-        icon="error" 
-        :title="'加载失败'" 
-        :sub-title="analysisStore.error"
-      >
-        <template #extra>
-          <el-button type="primary" @click="generateLocationEvents">重试</el-button>
-        </template>
-      </el-result>
-      
-      <!-- 尚未生成地点事件的提示 -->
+      <!-- 数据不存在提示 -->
       <el-empty 
-        v-else-if="!locationEvents" 
-        description="点击上方按钮生成地点事件分析"
+        v-else-if="!locationDetail" 
+        description="地点数据不存在或尚未加载"
       >
-        <el-button type="primary" @click="generateLocationEvents">生成地点事件分析</el-button>
+        <el-button type="primary" @click="goBack">返回地点列表</el-button>
       </el-empty>
       
       <!-- 地点事件内容 -->
-      <div v-else class="location-events-content">
-        <!-- 地点基本信息卡片 -->
-        <el-card class="location-info-card">
-          <div class="location-info">
-            <div class="location-image">
-              <img :src="getLocationImage()" alt="地点图像" class="location-img" />
-            </div>
-            <div class="location-details">
-              <h3 class="location-name">
-                {{ locationEvents.location.name }}
-                <el-tag v-if="locationEvents.location.is_important" type="danger" size="small">重要地点</el-tag>
-              </h3>
-              <div class="location-description">
-                {{ locationEvents.location.description || '暂无描述' }}
-              </div>
-              <div class="location-parent" v-if="locationEvents.location.parent_name">
-                <span>所属区域：</span>
-                <el-tag size="small" effect="plain">{{ locationEvents.location.parent_name }}</el-tag>
-              </div>
-            </div>
-            <div class="location-stats">
-              <div class="stat-item">
-                <div class="stat-value">{{ locationEvents.stats.events_count }}</div>
-                <div class="stat-label">相关事件</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-value">{{ locationEvents.stats.characters_count }}</div>
-                <div class="stat-label">相关角色</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-value">{{ locationEvents.stats.chapters_count }}</div>
-                <div class="stat-label">出现章节</div>
-              </div>
-            </div>
+      <div v-else class="events-content">
+        <!-- 基本信息 -->
+        <div class="location-info">
+          <div class="location-avatar">
+            <el-avatar 
+              :size="80" 
+              :src="getLocationIcon(locationDetail.id)" 
+            />
           </div>
-        </el-card>
+          <div class="location-details">
+            <h3 class="location-name">{{ locationDetail.name }}</h3>
+            <div class="location-description">{{ locationDetail.description || '暂无描述' }}</div>
+          </div>
+        </div>
         
-        <!-- 事件分析部分 -->
-        <div class="events-analysis">
-          <el-tabs v-model="activeTab">
-            <!-- 事件时间线标签页 -->
-            <el-tab-pane label="事件时间线" name="timeline">
-              <div class="events-timeline-container">
-                <el-timeline>
-                  <el-timeline-item
-                    v-for="event in locationEvents.events"
-                    :key="event.id"
-                    :timestamp="`第${event.chapter_id}章`"
-                    :type="getEventType(event)"
-                    :color="getEventColor(event)"
-                    placement="top"
-                  >
-                    <div class="event-card">
-                      <h4>{{ event.name }}</h4>
-                      <p>{{ event.description }}</p>
-                      <div class="event-participants" v-if="event.participants && event.participants.length">
-                        <span class="participants-label">相关角色：</span>
-                        <el-tag
-                          v-for="participant in event.participants"
-                          :key="participant.character_id"
-                          size="small"
-                          style="margin-right: 5px"
-                        >
-                          {{ participant.character_name }}
-                        </el-tag>
-                      </div>
-                      <div class="event-time" v-if="event.time_description">
-                        <span class="time-label">时间：</span>
-                        <el-tag type="info" size="small">{{ event.time_description }}</el-tag>
-                      </div>
-                    </div>
-                  </el-timeline-item>
-                </el-timeline>
-              </div>
-            </el-tab-pane>
-            
-            <!-- 角色分布标签页 -->
-            <el-tab-pane label="角色分布" name="characters">
-              <div class="characters-distribution">
-                <div ref="characterChartRef" class="character-chart"></div>
-              </div>
-            </el-tab-pane>
-            
-            <!-- 词云分析标签页 -->
-            <el-tab-pane label="关键词分析" name="keywords">
-              <div class="keywords-analysis">
-                <div ref="wordCloudRef" class="word-cloud"></div>
-                <div class="keywords-list">
-                  <el-table :data="locationEvents.keywords" style="width: 100%">
-                    <el-table-column prop="word" label="关键词"></el-table-column>
-                    <el-table-column prop="weight" label="权重">
-                      <template #default="scope">
-                        <el-progress 
-                          :percentage="scope.row.weight * 10" 
-                          :color="getKeywordColor(scope.row.weight)"
-                        ></el-progress>
-                      </template>
-                    </el-table-column>
-                    <el-table-column prop="context" label="上下文"></el-table-column>
-                  </el-table>
+        <el-divider>
+          <el-tag type="info">事件时间线</el-tag>
+        </el-divider>
+        
+        <!-- 事件为空的提示 -->
+        <el-empty 
+          v-if="!locationDetail.events || locationDetail.events.length === 0" 
+          description="该地点尚无相关事件"
+        >
+          <el-button type="primary" @click="goToLocationDetail">查看地点详情</el-button>
+        </el-empty>
+        
+        <!-- 事件时间线 -->
+        <div v-else class="events-timeline">
+          <el-timeline>
+            <el-timeline-item
+              v-for="event in sortedEvents"
+              :key="event.id"
+              :type="getEventType(event.importance)"
+              :color="getEventColor(event.importance)"
+              :timestamp="getEventTimestamp(event)"
+            >
+              <el-card class="event-card">
+                <template #header>
+                  <div class="event-header">
+                    <span class="event-name">{{ event.name }}</span>
+                    <el-tag 
+                      v-if="event.importance" 
+                      :type="getEventTagType(event.importance)"
+                      size="small"
+                    >
+                      重要性: {{ event.importance }}
+                    </el-tag>
+                  </div>
+                </template>
+                <div class="event-description">
+                  {{ event.description || '暂无描述' }}
                 </div>
-              </div>
-            </el-tab-pane>
-            
-            <!-- 相关地点标签页 -->
-            <el-tab-pane label="相关地点" name="related">
-              <div class="related-locations">
-                <el-row :gutter="20">
-                  <el-col 
-                    v-for="location in locationEvents.related_locations" 
-                    :key="location.id"
-                    :xs="24" 
-                    :sm="12" 
-                    :md="8" 
-                    :lg="6"
-                  >
-                    <el-card shadow="hover" class="related-location-card">
-                      <div class="related-location-content">
-                        <img :src="getLocationImage(location.id)" class="related-location-image" />
-                        <h4>{{ location.name }}</h4>
-                        <p>{{ location.description || '暂无描述' }}</p>
-                        <div class="location-relation">
-                          <el-tag size="small" :type="getRelationTagType(location.relation_type)">
-                            {{ location.relation_type }}
-                          </el-tag>
-                          <el-button 
-                            type="primary" 
-                            size="small" 
-                            text 
-                            @click="changeLocation(location.id)"
-                          >
-                            查看详情
-                          </el-button>
-                        </div>
-                      </div>
-                    </el-card>
-                  </el-col>
-                </el-row>
-              </div>
-            </el-tab-pane>
-          </el-tabs>
+                
+                <!-- 相关角色 -->
+                <div v-if="getEventParticipants(event).length > 0" class="event-participants">
+                  <div class="participants-label">相关角色:</div>
+                  <div class="participants-list">
+                    <el-tag 
+                      v-for="participant in getEventParticipants(event)" 
+                      :key="participant.id"
+                      type="success"
+                      size="small"
+                      style="margin: 2px 4px;"
+                      @click="viewCharacterDetail(participant.id)"
+                    >
+                      {{ participant.name }}
+                    </el-tag>
+                  </div>
+                </div>
+              </el-card>
+            </el-timeline-item>
+          </el-timeline>
         </div>
       </div>
     </el-card>
@@ -227,328 +107,159 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useNovelStore } from '@/store/novel'
-import { useAnalysisStore } from '@/store/analysis'
 import { ElMessage } from 'element-plus'
-import * as echarts from 'echarts'
-import 'echarts-wordcloud'
+import { ArrowLeft } from '@element-plus/icons-vue'
+import { locationApi } from '@/api'
 
 const router = useRouter()
 const route = useRoute()
-const novelStore = useNovelStore()
-const analysisStore = useAnalysisStore()
 
 // 本地状态
-const selectedNovel = ref(null)
-const selectedLocation = ref(null)
-const locations = ref([])
-const activeTab = ref('timeline')
-const characterChart = ref(null)
-const characterChartRef = ref(null)
-const wordCloud = ref(null)
-const wordCloudRef = ref(null)
+const locationId = ref(null)
+const novelId = ref(null)
+const locationDetail = ref(null)
+const loading = ref(false)
 
-// 地点事件数据
-const locationEvents = computed(() => analysisStore.locationEvents || null)
-
-// 从路由参数中获取小说ID和地点ID
+// 处理生命周期
 onMounted(async () => {
-  if (novelStore.novels.length === 0) {
-    await novelStore.fetchNovels()
-  }
+  locationId.value = Number(route.query.locationId)
+  novelId.value = Number(route.query.novelId)
   
-  const novelId = Number(route.query.novelId)
-  const locationId = Number(route.query.locationId)
+  if (locationId.value && !isNaN(locationId.value)) {
+    await loadLocationDetails()
+  } else {
+    ElMessage.warning('未提供有效的地点ID')
+  }
+})
+
+// 加载地点详情
+async function loadLocationDetails() {
+  if (!locationId.value) return
   
-  if (novelId && !isNaN(novelId)) {
-    selectedNovel.value = novelId
-    await loadLocations(novelId)
-    
-    if (locationId && !isNaN(locationId) && locations.value.find(l => l.id === locationId)) {
-      selectedLocation.value = locationId
-      
-      // 自动生成地点事件分析
-      generateLocationEvents()
-    }
-  }
-})
-
-// 监听标签页变化
-watch(activeTab, async (newValue) => {
-  if (newValue === 'characters' && locationEvents.value && !characterChart.value) {
-    await nextTick()
-    renderCharacterChart()
-  } else if (newValue === 'keywords' && locationEvents.value && !wordCloud.value) {
-    await nextTick()
-    renderWordCloud()
-  }
-})
-
-// 监听地点事件数据变化
-watch(locationEvents, async () => {
-  if (activeTab.value === 'characters' && locationEvents.value) {
-    await nextTick()
-    renderCharacterChart()
-  } else if (activeTab.value === 'keywords' && locationEvents.value) {
-    await nextTick()
-    renderWordCloud()
-  }
-})
-
-// 加载地点列表
-async function loadLocations(novelId) {
   try {
-    // TODO: 实际项目中应从API获取
-    // const response = await novelApi.getNovelLocations(novelId)
-    // locations.value = response.data
+    loading.value = true
     
-    // 模拟数据
-    locations.value = generateMockLocations()
+    const data = await locationApi.getLocationDetails(locationId.value)
+    console.log('地点详情API响应:', data)
+    
+    if (data) {
+      locationDetail.value = data
+      ElMessage.success('成功加载地点详情')
+    } else {
+      ElMessage.warning('地点详情数据为空')
+    }
   } catch (error) {
-    ElMessage.error('获取地点列表失败')
-    locations.value = []
+    console.error('获取地点详情失败:', error)
+    ElMessage.error('获取地点详情失败: ' + (error.message || '未知错误'))
+  } finally {
+    loading.value = false
   }
 }
 
-// 小说选择变化处理
-async function handleNovelChange(novelId) {
-  selectedLocation.value = null
-  analysisStore.reset()
-  await loadLocations(novelId)
-  
-  // 更新URL参数
-  router.replace({
-    query: { ...route.query, novelId, locationId: undefined }
+// 返回上一页
+function goBack() {
+  router.go(-1)
+}
+
+// 跳转到地点详情页
+function goToLocationDetail() {
+  router.push({
+    path: '/analysis/locations/detail',
+    query: {
+      novelId: novelId.value,
+      locationId: locationId.value
+    }
   })
 }
 
-// 地点选择变化处理
-function handleLocationChange(locationId) {
-  analysisStore.reset()
-  
-  // 更新URL参数
-  router.replace({
-    query: { ...route.query, locationId }
+// 查看角色详情
+function viewCharacterDetail(characterId) {
+  router.push({
+    path: '/analysis/characters/journey',
+    query: {
+      novelId: novelId.value,
+      characterId: characterId
+    }
   })
 }
 
-// 生成地点事件分析
-async function generateLocationEvents() {
-  if (!selectedNovel.value || !selectedLocation.value) return
-  
-  try {
-    await analysisStore.fetchLocationEvents(
-      selectedNovel.value,
-      selectedLocation.value
-    )
-  } catch (error) {
-    ElMessage.error('生成地点事件分析失败')
-  }
+// 获取事件参与者
+function getEventParticipants(event) {
+  // 这里模拟从事件中获取参与者信息
+  // 实际应该根据你的API返回的数据结构来获取
+  return locationDetail.value.characters.slice(0, 3)
 }
 
-// 渲染角色分布图表
-function renderCharacterChart() {
-  if (!characterChartRef.value || !locationEvents.value?.character_stats) return
+// 按章节顺序排序的事件
+const sortedEvents = computed(() => {
+  if (!locationDetail.value || !locationDetail.value.events) return []
   
-  if (!characterChart.value) {
-    characterChart.value = echarts.init(characterChartRef.value)
-  }
-  
-  const characterStats = locationEvents.value.character_stats
-  const characters = characterStats.map(item => item.character_name)
-  const appearanceCounts = characterStats.map(item => item.appearance_count)
-  
-  const options = {
-    title: {
-      text: '角色出现频率',
-      left: 'center'
-    },
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: {
-        type: 'shadow'
-      }
-    },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      containLabel: true
-    },
-    xAxis: {
-      type: 'value',
-      boundaryGap: [0, 0.01]
-    },
-    yAxis: {
-      type: 'category',
-      data: characters
-    },
-    series: [
-      {
-        name: '出现次数',
-        type: 'bar',
-        data: appearanceCounts,
-        itemStyle: {
-          color: function(params) {
-            const colorList = [
-              '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', 
-              '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'
-            ]
-            return colorList[params.dataIndex % colorList.length]
-          }
-        }
-      }
-    ]
-  }
-  
-  characterChart.value.setOption(options)
-}
-
-// 渲染词云图
-function renderWordCloud() {
-  if (!wordCloudRef.value || !locationEvents.value?.keywords) return
-  
-  if (!wordCloud.value) {
-    wordCloud.value = echarts.init(wordCloudRef.value)
-  }
-  
-  const keywords = locationEvents.value.keywords
-  const data = keywords.map(item => ({
-    name: item.word,
-    value: item.weight * 100,
-    textStyle: {
-      color: getKeywordColor(item.weight)
+  return [...locationDetail.value.events].sort((a, b) => {
+    if (a.chapter_id && b.chapter_id) {
+      return a.chapter_id - b.chapter_id
     }
-  }))
-  
-  const options = {
-    series: [{
-      type: 'wordCloud',
-      shape: 'circle',
-      left: 'center',
-      top: 'center',
-      width: '80%',
-      height: '80%',
-      right: null,
-      bottom: null,
-      sizeRange: [12, 50],
-      rotationRange: [-90, 90],
-      rotationStep: 45,
-      gridSize: 8,
-      drawOutOfBound: false,
-      textStyle: {
-        fontFamily: 'sans-serif',
-        fontWeight: 'bold'
-      },
-      emphasis: {
-        textStyle: {
-          shadowBlur: 10,
-          shadowColor: '#333'
-        }
-      },
-      data: data
-    }]
-  }
-  
-  wordCloud.value.setOption(options)
-}
-
-// 导航到小说列表
-function navigateToNovelList() {
-  router.push('/novels/list')
-}
-
-// 切换到其他地点
-function changeLocation(locationId) {
-  selectedLocation.value = locationId
-  generateLocationEvents()
-}
-
-// 获取事件类型
-function getEventType(event) {
-  const typeMap = {
-    'critical': 'danger',  // 关键转折点
-    'major': 'warning',    // 重要事件
-    'normal': 'primary',   // 普通事件
-    'minor': 'info'        // 次要事件
-  }
-  
-  return typeMap[event.importance_level] || 'primary'
-}
-
-// 获取事件颜色
-function getEventColor(event) {
-  const colorMap = {
-    'critical': '#F56C6C',
-    'major': '#E6A23C',
-    'normal': '#409EFF',
-    'minor': '#909399'
-  }
-  
-  return colorMap[event.importance_level] || ''
-}
-
-// 获取关系标签类型
-function getRelationTagType(relationType) {
-  const typeMap = {
-    '包含': 'success',
-    '邻近': 'info',
-    '对立': 'danger',
-    '附属': 'warning'
-  }
-  
-  return typeMap[relationType] || ''
-}
-
-// 获取关键词颜色
-function getKeywordColor(weight) {
-  // weight范围0-10
-  if (weight >= 8) return '#F56C6C' // 高频关键词
-  if (weight >= 5) return '#E6A23C' // 中高频关键词
-  if (weight >= 3) return '#409EFF' // 中频关键词
-  return '#909399' // 低频关键词
-}
-
-// 获取地点图像
-function getLocationImage(id = null) {
-  const locationId = id || selectedLocation.value
-  const baseUrl = 'https://picsum.photos/seed/'
-  return `${baseUrl}location-${locationId}/300/200`
-}
-
-// 窗口大小变化时重绘图表
-window.addEventListener('resize', () => {
-  if (characterChart.value) {
-    characterChart.value.resize()
-  }
-  if (wordCloud.value) {
-    wordCloud.value.resize()
-  }
+    if (a.chapter_id) return -1
+    if (b.chapter_id) return 1
+    return 0
+  })
 })
 
-// 生成模拟地点数据
-function generateMockLocations() {
-  const count = 8
-  const locations = []
-  
-  const names = ['华山', '洛阳城', '东海湾', '天山派', '幽冥谷', '江南水乡', '皇宫', '黑风寨']
-  
-  for (let i = 0; i < count; i++) {
-    locations.push({
-      id: i + 1,
-      name: names[i % names.length]
-    })
-  }
-  
-  return locations
+// 获取事件时间戳显示
+function getEventTimestamp(event) {
+  if (event.time_description) return event.time_description
+  if (event.chapter_id) return `第${event.chapter_id}章`
+  return '未知时间'
+}
+
+// 获取事件类型（用于时间线）
+function getEventType(importance) {
+  if (!importance) return 'info'
+  if (importance >= 4) return 'danger'
+  if (importance >= 3) return 'warning'
+  if (importance >= 2) return 'success'
+  return 'info'
+}
+
+// 获取事件颜色（用于时间线）
+function getEventColor(importance) {
+  if (!importance) return '#909399'
+  if (importance >= 4) return '#F56C6C'
+  if (importance >= 3) return '#E6A23C'
+  if (importance >= 2) return '#67C23A'
+  return '#909399'
+}
+
+// 获取事件标签类型
+function getEventTagType(importance) {
+  if (!importance) return 'info'
+  if (importance >= 4) return 'danger'
+  if (importance >= 3) return 'warning'
+  if (importance >= 2) return 'success'
+  return 'info'
+}
+
+// 获取地点图标
+function getLocationIcon(id) {
+  const icons = [
+    'castle', 'home', 'mountain', 'forest', 'city',
+    'beach', 'cave', 'building', 'palace', 'village'
+  ]
+  const iconIndex = id % icons.length
+  return `https://api.dicebear.com/7.x/bottts/svg?seed=${icons[iconIndex]}_${id}`
 }
 </script>
 
 <style scoped>
 .location-events-container {
-  height: 100%;
+  min-height: 100%;
+  height: auto;
+  width: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  position: relative;
 }
 
 .page-header {
@@ -556,47 +267,35 @@ function generateMockLocations() {
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
+  gap: 15px;
+  position: sticky;
+  top: 0;
+  background-color: white;
+  z-index: 10;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
   gap: 10px;
 }
 
-.page-header h2 {
+.header-left h2 {
   margin: 0;
 }
 
-.header-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.loading-container {
-  padding: 20px 0;
-}
-
-.location-events-content {
+.events-content {
   margin-top: 20px;
-}
-
-.location-info-card {
-  margin-bottom: 20px;
 }
 
 .location-info {
   display: flex;
   align-items: center;
   gap: 20px;
-}
-
-.location-image {
-  width: 200px;
-  height: 150px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f5f7fa;
   border-radius: 8px;
-  overflow: hidden;
-}
-
-.location-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .location-details {
@@ -604,145 +303,62 @@ function generateMockLocations() {
 }
 
 .location-name {
-  margin-top: 0;
-  margin-bottom: 10px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  margin: 0 0 10px 0;
 }
 
 .location-description {
   color: #606266;
-  margin-bottom: 10px;
 }
 
-.location-parent {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: #909399;
-}
-
-.location-stats {
-  display: flex;
-  gap: 20px;
-}
-
-.stat-item {
-  text-align: center;
-}
-
-.stat-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: #409EFF;
-  margin-bottom: 5px;
-}
-
-.stat-label {
-  color: #909399;
-  font-size: 14px;
-}
-
-.events-analysis {
-  min-height: 400px;
-}
-
-.events-timeline-container {
-  padding: 10px;
-}
-
-.event-card {
-  background-color: #f5f7fa;
-  border-radius: 4px;
-  padding: 12px;
-  margin-bottom: 10px;
-}
-
-.event-card h4 {
-  margin-top: 0;
-  margin-bottom: 8px;
-}
-
-.event-card p {
-  margin-top: 0;
-  margin-bottom: 10px;
-  color: #606266;
-}
-
-.event-participants, .event-time {
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.participants-label, .time-label {
-  color: #909399;
-  margin-right: 5px;
-}
-
-.characters-distribution {
-  padding: 10px;
-}
-
-.character-chart {
-  width: 100%;
-  height: 400px;
-}
-
-.keywords-analysis {
-  padding: 10px;
-}
-
-.word-cloud {
-  width: 100%;
-  height: 300px;
-  margin-bottom: 20px;
-}
-
-.keywords-list {
+.events-timeline {
   margin-top: 20px;
 }
 
-.related-locations {
-  padding: 10px;
-}
-
-.related-location-card {
-  margin-bottom: 20px;
-  height: 100%;
-}
-
-.related-location-content {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.related-location-image {
-  width: 100%;
-  height: 120px;
-  object-fit: cover;
-  border-radius: 4px;
+.event-card {
   margin-bottom: 10px;
 }
 
-.related-location-content h4 {
-  margin-top: 0;
-  margin-bottom: 10px;
-}
-
-.related-location-content p {
-  color: #606266;
-  margin-top: 0;
-  margin-bottom: 10px;
-  flex-grow: 1;
-}
-
-.location-relation {
+.event-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.event-name {
+  font-weight: bold;
+}
+
+.event-description {
+  margin-bottom: 15px;
+  text-align: justify;
+}
+
+.event-participants {
+  margin-top: 10px;
+}
+
+.participants-label {
+  color: #909399;
+  font-size: 0.9rem;
+  margin-bottom: 5px;
+}
+
+.participants-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .location-info {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
 }
 </style> 

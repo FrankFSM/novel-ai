@@ -74,8 +74,28 @@ const routes = [
       {
         path: 'locations',
         name: 'LocationAnalysis',
-        component: () => import('@/views/analysis/LocationEvents.vue'),
-        meta: { title: '地理空间' }
+        redirect: '/analysis/locations/list',
+        meta: { title: '地点分析' },
+        children: [
+          {
+            path: 'list',
+            name: 'LocationList',
+            component: () => import('@/views/analysis/LocationList.vue'),
+            meta: { title: '地点列表' }
+          },
+          {
+            path: 'detail',
+            name: 'LocationDetail',
+            component: () => import('@/views/analysis/LocationDetail.vue'),
+            meta: { title: '地点详情' }
+          },
+          {
+            path: 'events',
+            name: 'LocationEvents',
+            component: () => import('@/views/analysis/LocationEvents.vue'),
+            meta: { title: '地点事件' }
+          }
+        ]
       }
     ]
   },
