@@ -32,5 +32,18 @@ export default {
       url: `/location-analysis/locations/${locationId}/significance`,
       method: 'get'
     }).then(response => response.data)
+  },
+  
+  // 获取地点的时间线
+  getLocationTimeline(locationId, novelId, startChapter = null, endChapter = null) {
+    return request({
+      url: `/location-analysis/locations/${locationId}/timeline`,
+      method: 'get',
+      params: {
+        novel_id: novelId,
+        start_chapter: startChapter,
+        end_chapter: endChapter
+      }
+    }).then(response => response.data)
   }
 } 

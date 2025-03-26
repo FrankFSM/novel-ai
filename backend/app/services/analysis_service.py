@@ -1140,4 +1140,144 @@ def filter_relationship_graph(
     return {
         "nodes": filtered_nodes,
         "edges": filtered_edges
+    }
+
+def get_location_timeline(
+    db: Session, 
+    novel_id: int, 
+    location_id: int,
+    start_chapter: Optional[int] = None,
+    end_chapter: Optional[int] = None
+) -> schemas.TimelineResponse:
+    """获取地点的时间线
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        location_id: 地点ID
+        start_chapter: 开始章节（可选）
+        end_chapter: 结束章节（可选）
+        
+    Returns:
+        时间线响应对象
+    """
+    # 确认地点存在于指定小说中
+    location = db.query(novel.Location).filter(
+        novel.Location.id == location_id,
+        novel.Location.novel_id == novel_id
+    ).first()
+    
+    if not location:
+        raise ValueError("找不到指定地点")
+    
+    # 查询在此地点发生的事件
+    query = db.query(novel.Event).filter(
+        novel.Event.novel_id == novel_id,
+        novel.Event.location_id == location_id
+    )
+    
+    # 应用章节过滤
+    if start_chapter:
+        query = query.filter(novel.Event.chapter_id >= start_chapter)
+    
+    if end_chapter:
+        query = query.filter(novel.Event.chapter_id <= end_chapter)
+    
+    # 按章节顺序排序
+    events = query.order_by(novel.Event.chapter_id).all()
+    
+    # 添加子地点的事件
+    sub_locations = db.query(novel.Location).filter(
+        novel.Location.parent_id == location_id
+    ).all()
+    
+    for sub_location in sub_locations:
+        sub_query = db.query(novel.Event).filter(
+            novel.Event.novel_id == novel_id,
+            novel.Event.location_id == sub_location.id
+        )
+        
+        if start_chapter:
+            sub_query = sub_query.filter(novel.Event.chapter_id >= start_chapter)
+        
+        if end_chapter:
+            sub_query = sub_query.filter(novel.Event.chapter_id <= end_chapter)
+        
+        sub_events = sub_query.all()
+        events.extend(sub_events)
+    
+    # 重新按章节顺序排序所有事件
+    events.sort(key=lambda e: e.chapter_id if e.chapter_id else 9999)
+    
+    # 构建事件详情
+    event_details = []
+    for event in events:
+        # 获取参与者
+        participants = db.query(novel.EventParticipation).filter(
+            novel.EventParticipation.event_id == event.id
+        ).all()
+        
+        participant_details = []
+        for p in participants:
+            character = db.query(novel.Character).filter(
+                novel.Character.id == p.character_id
+            ).first()
+            
+            if character:
+                participant_details.append({
+                    "character_id": character.id,
+                    "character_name": character.name,
+                    "role": p.role
+                })
+        
+        # 获取地点信息
+        event_location = None
+        if event.location_id:
+            loc = db.query(novel.Location).filter(
+                novel.Location.id == event.location_id
+            ).first()
+            
+            if loc:
+                event_location = {
+                    "id": loc.id,
+                    "name": loc.name,
+                    "description": loc.description
+                }
+        
+        # 为每个事件添加一些时间分析标签
+        tags = []
+        if event.importance >= 4:
+            tags.append("重要事件")
+        
+        # 根据事件描述推断事件类型
+        if any(keyword in (event.description or "").lower() for keyword in ["战斗", "打斗", "厮杀", "杀死"]):
+            tags.append("战斗")
+        
+        if any(keyword in (event.description or "").lower() for keyword in ["爱", "情感", "喜欢", "关心"]):
+            tags.append("情感")
+        
+        if any(keyword in (event.description or "").lower() for keyword in ["发现", "寻找", "找到", "获得"]):
+            tags.append("发现")
+        
+        if any(keyword in (event.description or "").lower() for keyword in ["旅行", "前往", "出发", "到达"]):
+            tags.append("旅行")
+        
+        event_details.append({
+            "id": event.id,
+            "novel_id": event.novel_id,
+            "name": event.name,
+            "description": event.description,
+            "chapter_id": event.chapter_id,
+            "location_id": event.location_id,
+            "time_description": event.time_description,
+            "importance": event.importance,
+            "participants": participant_details,
+            "location": event_location,
+            "tags": tags,
+            # 简化的时间位置，用于排序
+            "time_position": event.chapter_id
+        })
+    
+    return {
+        "events": event_details
     } 

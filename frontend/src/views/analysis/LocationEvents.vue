@@ -116,18 +116,25 @@ import { locationApi } from '@/api'
 const router = useRouter()
 const route = useRoute()
 
+// 定义Props
+const props = defineProps({
+  locationId: {
+    type: Number,
+    required: true
+  },
+  novelId: {
+    type: Number,
+    required: true
+  }
+})
+
 // 本地状态
-const locationId = ref(null)
-const novelId = ref(null)
 const locationDetail = ref(null)
 const loading = ref(false)
 
 // 处理生命周期
 onMounted(async () => {
-  locationId.value = Number(route.query.locationId)
-  novelId.value = Number(route.query.novelId)
-  
-  if (locationId.value && !isNaN(locationId.value)) {
+  if (props.locationId) {
     await loadLocationDetails()
   } else {
     ElMessage.warning('未提供有效的地点ID')
@@ -136,17 +143,17 @@ onMounted(async () => {
 
 // 加载地点详情
 async function loadLocationDetails() {
-  if (!locationId.value) return
+  if (!props.locationId) return
   
   try {
     loading.value = true
     
-    const data = await locationApi.getLocationDetails(locationId.value)
+    const data = await locationApi.getLocationDetails(props.locationId)
     console.log('地点详情API响应:', data)
     
     if (data) {
       locationDetail.value = data
-      ElMessage.success('成功加载地点详情')
+      ElMessage.success('成功加载地点事件数据')
     } else {
       ElMessage.warning('地点详情数据为空')
     }
@@ -163,14 +170,12 @@ function goBack() {
   router.go(-1)
 }
 
-// 跳转到地点详情页
+// 前往地点详情页
 function goToLocationDetail() {
   router.push({
-    path: '/analysis/locations/detail',
-    query: {
-      novelId: novelId.value,
-      locationId: locationId.value
-    }
+    name: 'LocationDetail',
+    params: { locationId: props.locationId },
+    query: { novelId: props.novelId }
   })
 }
 
@@ -179,7 +184,7 @@ function viewCharacterDetail(characterId) {
   router.push({
     path: '/analysis/characters/journey',
     query: {
-      novelId: novelId.value,
+      novelId: props.novelId,
       characterId: characterId
     }
   })

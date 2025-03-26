@@ -4,7 +4,9 @@ from typing import List
 
 from app.core.database import get_db
 from app.schemas.location_analysis import LocationAnalysisResponse, LocationSignificance, LocationDetail, NovelLocationsResponse
+from app.models.schemas import TimelineResponse
 from app.services.location_analysis_service import analyze_novel_locations, get_location_details, analyze_location_significance
+from app.services import analysis_service
 
 router = APIRouter()
 
@@ -83,4 +85,34 @@ async def get_novel_locations(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取地点列表失败: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"获取地点列表失败: {str(e)}")
+
+@router.get("/locations/{location_id}/timeline", response_model=TimelineResponse)
+async def get_location_timeline(
+    location_id: int = Path(..., title="地点ID"),
+    novel_id: int = Query(..., title="小说ID"),
+    start_chapter: int = Query(None, title="开始章节"),
+    end_chapter: int = Query(None, title="结束章节"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取地点的时间线
+    
+    - **location_id**: 地点ID
+    - **novel_id**: 小说ID
+    - **start_chapter**: 开始章节（可选）
+    - **end_chapter**: 结束章节（可选）
+    """
+    try:
+        result = analysis_service.get_location_timeline(
+            db=db,
+            novel_id=novel_id,
+            location_id=location_id,
+            start_chapter=start_chapter,
+            end_chapter=end_chapter
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取地点时间线失败: {str(e)}") 

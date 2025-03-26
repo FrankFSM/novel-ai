@@ -7,7 +7,7 @@
             <el-button type="text" @click="goBack">
               <el-icon><ArrowLeft /></el-icon> 返回
             </el-button>
-            <h2 v-if="locationDetail">{{ locationDetail.name }} - 详情</h2>
+            <h2 v-if="locationDetail && locationDetail.name">{{ locationDetail.name }} - 详情</h2>
             <h2 v-else>地点详情</h2>
           </div>
           <div class="header-right">
@@ -36,43 +36,40 @@
       </el-empty>
       
       <!-- 地点详情内容 -->
-      <div v-else class="location-detail-content">
+      <div v-else-if="locationDetail" class="location-detail-content">
         <!-- 基本信息卡片 -->
         <el-row :gutter="20">
           <el-col :xs="24" :sm="24" :md="8" :lg="8" :xl="8">
             <el-card shadow="hover" class="info-card">
-              <div class="location-avatar">
-                <el-avatar 
-                  :size="120" 
-                  :src="getLocationIcon(locationDetail.id)" 
-                />
+              <div v-if="locationDetail" class="location-avatar">
+                <el-icon :size="50"><component :is="getLocationIcon(locationDetail.id)" /></el-icon>
               </div>
-              <h3 class="location-title">{{ locationDetail.name }}</h3>
+              <h3 class="location-title">{{ locationDetail ? (locationDetail.name || '未命名地点') : '加载中...' }}</h3>
               <div class="location-description">
-                {{ locationDetail.description || '暂无描述' }}
+                {{ locationDetail ? (locationDetail.description || '暂无描述') : '' }}
               </div>
               
-              <div class="location-hierarchy" v-if="locationDetail.parent">
+              <div class="location-hierarchy" v-if="locationDetail && locationDetail.parent">
                 <div class="hierarchy-label">所属地点：</div>
                 <el-tag 
                   type="info" 
                   @click="viewParentLocation(locationDetail.parent.id)"
                   style="cursor: pointer;"
                 >
-                  {{ locationDetail.parent.name }}
+                  {{ locationDetail.parent.name || '未命名父地点' }}
                 </el-tag>
               </div>
               
-              <div class="sub-locations" v-if="locationDetail.sub_locations && locationDetail.sub_locations.length">
+              <div v-if="locationDetail && locationDetail.sub_locations && locationDetail.sub_locations.length" class="sub-locations">
                 <div class="sub-label">子地点：</div>
                 <div class="sub-tags">
                   <el-tag 
-                    v-for="sub in locationDetail.sub_locations" 
-                    :key="sub.id"
+                    v-for="(sub, index) in locationDetail.sub_locations" 
+                    :key="sub.id || index"
                     @click="viewSubLocation(sub.id)"
                     style="cursor: pointer; margin: 2px 4px;"
                   >
-                    {{ sub.name }}
+                    {{ sub.name || '未命名地点' }}
                   </el-tag>
                 </div>
               </div>
@@ -80,16 +77,26 @@
               <div class="location-stats">
                 <div class="stat-item">
                   <div class="stat-label">事件数量</div>
-                  <div class="stat-value">{{ locationDetail.events.length }}</div>
+                  <div class="stat-value">{{ locationDetail && locationDetail.events ? locationDetail.events.length : 0 }}</div>
                 </div>
                 <div class="stat-item">
                   <div class="stat-label">相关角色</div>
-                  <div class="stat-value">{{ locationDetail.characters.length }}</div>
+                  <div class="stat-value">{{ locationDetail && locationDetail.characters ? locationDetail.characters.length : 0 }}</div>
                 </div>
                 <div class="stat-item">
                   <div class="stat-label">子地点</div>
-                  <div class="stat-value">{{ locationDetail.sub_locations.length }}</div>
+                  <div class="stat-value">{{ locationDetail && locationDetail.sub_locations ? locationDetail.sub_locations.length : 0 }}</div>
                 </div>
+              </div>
+
+              <!-- 时间线按钮 放在地点基本信息卡片底部 -->
+              <div class="flex justify-end mt-4">
+                <n-button type="primary" ghost @click="showTimeline = !showTimeline">
+                  {{ showTimeline ? '隐藏时间线' : '查看时间线' }}
+                  <template #icon>
+                    <el-icon><timer /></el-icon>
+                  </template>
+                </n-button>
               </div>
             </el-card>
             
@@ -141,6 +148,87 @@
           
           <!-- 右侧内容 -->
           <el-col :xs="24" :sm="24" :md="16" :lg="16" :xl="16">
+            <!-- 在相关角色卡片前添加时间线卡片 -->
+            <n-card v-if="showTimeline" class="mb-6" :bordered="false">
+              <template #header>
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center">
+                    <el-icon class="mr-2 text-xl"><timer /></el-icon>
+                    <span class="text-lg font-medium">时间线</span>
+                  </div>
+                  <div class="flex items-center">
+                    <n-button-group>
+                      <n-button 
+                        size="small" 
+                        :type="timelineMode === 'chapter' ? 'primary' : 'default'"
+                        @click="timelineMode = 'chapter'">
+                        按章节
+                      </n-button>
+                      <n-button 
+                        size="small" 
+                        :type="timelineMode === 'time' ? 'primary' : 'default'"
+                        @click="timelineMode = 'time'">
+                        按时间
+                      </n-button>
+                    </n-button-group>
+                  </div>
+                </div>
+              </template>
+              
+              <div class="my-2">
+                <n-space>
+                  <n-tag 
+                    v-for="tag in availableTags" 
+                    :key="tag"
+                    :type="activeTags.includes(tag) ? 'primary' : 'default'"
+                    :bordered="false"
+                    style="cursor: pointer"
+                    @click="toggleTag(tag)">
+                    {{ tag }}
+                  </n-tag>
+                </n-space>
+              </div>
+              
+              <n-skeleton v-if="timelineLoading" :repeat="5" />
+              
+              <div v-else-if="!timeline || !timeline.events || timeline.events.length === 0" class="py-10 text-center">
+                <n-empty description="暂无时间线数据" size="small">
+                  <template #extra>
+                    <n-button size="small" @click="loadLocationTimeline">重新加载</n-button>
+                  </template>
+                </n-empty>
+              </div>
+              
+              <n-timeline v-else>
+                <n-timeline-item
+                  v-for="event in filteredEvents"
+                  :key="event.id"
+                  :type="getEventType(event.importance)"
+                  :title="formatTimestamp(event)"
+                  :content="event.name"
+                  :color="getEventColor(event.importance)"
+                  :time="false">
+                  <template #meta>
+                    <div class="mb-1">
+                      <n-tag 
+                        v-for="tag in event.tags || []" 
+                        :key="tag" 
+                        size="small" 
+                        class="mr-1">
+                        {{ tag }}
+                      </n-tag>
+                    </div>
+                  </template>
+                  
+                  <div class="text-gray-600 my-1">{{ event.description }}</div>
+                  
+                  <div v-if="event.characters && event.characters.length > 0" class="mt-2">
+                    <n-avatar-group :options="getEventCharacters(event)" :max="5" />
+                  </div>
+                </n-timeline-item>
+              </n-timeline>
+            </n-card>
+            
             <!-- 地点相关事件 -->
             <el-card shadow="hover" class="events-card">
               <template #header>
@@ -149,12 +237,12 @@
                 </div>
               </template>
               
-              <el-empty v-if="!locationDetail.events.length" description="暂无相关事件" />
+              <el-empty v-if="!locationDetail || !locationDetail.events || !locationDetail.events.length" description="暂无相关事件" />
               
               <el-timeline v-else>
                 <el-timeline-item
-                  v-for="event in locationDetail.events"
-                  :key="event.id"
+                  v-for="(event, index) in locationDetail.events"
+                  :key="event.id || index"
                   :type="getEventType(event.importance)"
                   :color="getEventColor(event.importance)"
                   :timestamp="event.time_description || '未知时间'"
@@ -191,13 +279,13 @@
                 </div>
               </template>
               
-              <el-empty v-if="!locationDetail.characters.length" description="暂无相关角色" />
+              <el-empty v-if="!locationDetail || !locationDetail.characters || !locationDetail.characters.length" description="暂无相关角色" />
               
               <div v-else class="character-list">
                 <el-row :gutter="12">
                   <el-col 
-                    v-for="character in locationDetail.characters" 
-                    :key="character.id"
+                    v-for="(character, index) in locationDetail.characters" 
+                    :key="character.id || index"
                     :xs="12" 
                     :sm="8" 
                     :md="8" 
@@ -216,7 +304,7 @@
                         />
                       </div>
                       <div class="character-info">
-                        <div class="character-name">{{ character.name }}</div>
+                        <div class="character-name">{{ character.name || '未命名角色' }}</div>
                         <el-tag 
                           v-if="character.importance >= 4" 
                           size="small" 
@@ -245,28 +333,95 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
-import { locationApi } from '@/api'
+import {
+  ArrowLeft,
+  ArrowUp,
+  HomeFilled,
+  Location,
+  MapLocation,
+  School,
+  OfficeBuilding,
+  House,
+  Notebook,
+  ShoppingBag,
+  Edit,
+  Refresh,
+  Calendar,
+  Timer,
+  Menu
+} from '@element-plus/icons-vue'
+import locationApi from '@/api/modules/location'
+
+// 导入Naive UI组件
+import {
+  NCard,
+  NButton,
+  NButtonGroup,
+  NSkeleton,
+  NEmpty,
+  NTimeline,
+  NTimelineItem,
+  NTag,
+  NSpace,
+  NAvatarGroup
+} from 'naive-ui'
 
 const router = useRouter()
 const route = useRoute()
 
+// 定义Props
+const props = defineProps({
+  locationId: {
+    type: [Number, String],
+    required: true
+  },
+  novelId: {
+    type: [Number, String],
+    required: true
+  }
+})
+
+// 将字符串ID转为数字
+const locationIdNum = computed(() => {
+  const id = Number(props.locationId);
+  console.log('计算属性处理locationId:', props.locationId, '→', id);
+  return id;
+});
+
+const novelIdNum = computed(() => {
+  const id = Number(props.novelId);
+  console.log('计算属性处理novelId:', props.novelId, '→', id);
+  return id;
+});
+
 // 本地状态
-const locationId = ref(null)
-const novelId = ref(null)
 const locationDetail = ref(null)
 const locationSignificance = ref(null)
 const loading = ref(false)
+const showTimeline = ref(false)
+const timeline = ref(null)
+const timelineLoading = ref(false)
+const timelineMode = ref('chapter')  // 'chapter' 或 'time'
+const activeTags = ref(['重要事件', '战斗', '情感', '发现'])
 
 // 处理生命周期
 onMounted(async () => {
-  locationId.value = Number(route.query.locationId)
-  novelId.value = Number(route.query.novelId)
+  // 初始化默认值以防止渲染错误
+  locationDetail.value = {
+    id: 0,
+    name: '加载中...',
+    description: '',
+    events: [],
+    characters: [],
+    sub_locations: []
+  }
   
-  if (locationId.value && !isNaN(locationId.value)) {
+  console.log('LocationDetail组件挂载，获取到的ID:', props.locationId, '小说ID:', props.novelId);
+  
+  if (props.locationId) {
     await loadLocationDetails()
     await loadLocationSignificance()
   } else {
@@ -274,44 +429,160 @@ onMounted(async () => {
   }
 })
 
+// 监听时间线显示状态
+watch(showTimeline, async (newVal) => {
+  if (newVal && !timeline.value) {
+    await loadLocationTimeline()
+  }
+})
+
 // 加载地点详情
 async function loadLocationDetails() {
-  if (!locationId.value) return
+  const locationId = locationIdNum.value;
+  
+  if (!locationId || isNaN(locationId)) {
+    ElMessage.warning('无效的地点ID: ' + props.locationId);
+    return;
+  }
   
   try {
-    loading.value = true
+    loading.value = true;
+    console.log('正在加载地点ID:', locationId, '的详情');
     
-    const data = await locationApi.getLocationDetails(locationId.value)
-    console.log('地点详情API响应:', data)
+    const data = await locationApi.getLocationDetails(locationId);
+    console.log('地点详情API响应:', data);
     
     if (data) {
-      locationDetail.value = data
-      ElMessage.success('成功加载地点详情')
+      // 确保数据结构完整
+      if (!data.events) data.events = [];
+      if (!data.characters) data.characters = [];
+      if (!data.sub_locations) data.sub_locations = [];
+      
+      // 确保每个事件都有基本属性
+      data.events = data.events.map(event => ({
+        id: event.id || 0,
+        name: event.name || '未命名事件',
+        description: event.description || '',
+        importance: event.importance || 1,
+        chapter_id: event.chapter_id || null,
+        time_description: event.time_description || '',
+        characters: Array.isArray(event.characters) ? event.characters : []
+      }));
+      
+      // 确保每个角色都有基本属性
+      data.characters = data.characters.map(char => ({
+        id: char.id || 0,
+        name: char.name || '未命名角色',
+        importance: char.importance || 1
+      }));
+      
+      locationDetail.value = data;
+      console.log('成功设置地点详情:', locationDetail.value);
+      ElMessage.success('成功加载地点详情');
     } else {
-      ElMessage.warning('地点详情数据为空')
+      ElMessage.warning('地点详情数据为空');
+      // 初始化默认值以防止渲染错误
+      locationDetail.value = {
+        id: locationId,
+        name: '未找到地点',
+        description: '无法获取地点详情',
+        events: [],
+        characters: [],
+        sub_locations: []
+      };
     }
   } catch (error) {
-    console.error('获取地点详情失败:', error)
-    ElMessage.error('获取地点详情失败: ' + (error.message || '未知错误'))
+    console.error('获取地点详情失败:', error);
+    ElMessage.error('获取地点详情失败: ' + (error.message || '未知错误'));
+    // 初始化默认值以防止渲染错误
+    locationDetail.value = {
+      id: locationId,
+      name: '加载失败',
+      description: '地点详情加载失败',
+      events: [],
+      characters: [],
+      sub_locations: []
+    };
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 
 // 加载地点重要性分析
 async function loadLocationSignificance() {
-  if (!locationId.value) return
+  const locationId = locationIdNum.value;
+  
+  if (!locationId || isNaN(locationId)) {
+    console.warn('无法加载地点重要性分析，无效的地点ID:', props.locationId);
+    return;
+  }
   
   try {
-    const data = await locationApi.getLocationSignificance(locationId.value)
-    console.log('地点重要性分析API响应:', data)
+    console.log('正在加载地点ID:', locationId, '的重要性分析');
+    const data = await locationApi.getLocationSignificance(locationId);
+    console.log('地点重要性分析API响应:', data);
     
     if (data) {
-      locationSignificance.value = data
+      locationSignificance.value = data;
+    } else {
+      console.warn('地点重要性分析数据为空');
     }
   } catch (error) {
-    console.error('获取地点重要性分析失败:', error)
+    console.error('获取地点重要性分析失败:', error);
     // 不显示错误消息，因为这只是补充信息
+  }
+}
+
+// 加载地点时间线
+async function loadLocationTimeline() {
+  const locationId = locationIdNum.value;
+  const novelId = novelIdNum.value;
+  
+  if (!locationId || isNaN(locationId)) {
+    console.warn('无法加载地点时间线，无效的地点ID:', props.locationId);
+    return;
+  }
+  
+  if (!novelId || isNaN(novelId)) {
+    console.warn('无法加载地点时间线，无效的小说ID:', props.novelId);
+    return;
+  }
+  
+  try {
+    timelineLoading.value = true;
+    console.log('正在加载地点ID:', locationId, '小说ID:', novelId, '的时间线');
+    
+    const data = await locationApi.getLocationTimeline(locationId, novelId);
+    console.log('地点时间线API响应:', data);
+    
+    if (data && data.events) {
+      // 确保每个事件都有必要的属性
+      data.events = data.events.map(event => ({
+        id: event.id || 0,
+        name: event.name || '未命名事件',
+        description: event.description || '',
+        importance: event.importance || 1,
+        chapter_id: event.chapter_id || null,
+        time_description: event.time_description || '',
+        time_position: event.time_position || 0,
+        tags: Array.isArray(event.tags) ? event.tags : [],
+        characters: Array.isArray(event.characters) ? 
+          event.characters.filter(char => char && typeof char === 'object') : []
+      }));
+      
+      timeline.value = data;
+      ElMessage.success('成功加载地点时间线');
+    } else {
+      timeline.value = { events: [] };
+      console.warn('地点时间线数据为空');
+      ElMessage.warning('地点时间线数据为空');
+    }
+  } catch (error) {
+    console.error('获取地点时间线失败:', error);
+    ElMessage.error('获取地点时间线失败: ' + (error.message || '未知错误'));
+    timeline.value = { events: [] }; // 设置默认值避免未定义错误
+  } finally {
+    timelineLoading.value = false;
   }
 }
 
@@ -322,53 +593,168 @@ function goBack() {
 
 // 查看父地点
 function viewParentLocation(parentId) {
+  if (!parentId) {
+    ElMessage.warning('父地点ID无效')
+    return
+  }
+  
   router.push({
-    path: '/analysis/locations/detail',
-    query: {
-      novelId: novelId.value,
-      locationId: parentId
-    }
+    name: 'LocationDetail',
+    params: { locationId: parentId },
+    query: { novelId: props.novelId }
   })
 }
 
 // 查看子地点
 function viewSubLocation(subId) {
+  if (!subId) {
+    ElMessage.warning('子地点ID无效')
+    return
+  }
+  
   router.push({
-    path: '/analysis/locations/detail',
-    query: {
-      novelId: novelId.value,
-      locationId: subId
-    }
+    name: 'LocationDetail',
+    params: { locationId: subId },
+    query: { novelId: props.novelId }
   })
 }
 
 // 查看角色详情
 function viewCharacterDetail(characterId) {
+  if (!characterId) {
+    ElMessage.warning('角色ID无效')
+    return
+  }
+  
   router.push({
     path: '/analysis/characters/journey',
     query: {
-      novelId: novelId.value,
+      novelId: props.novelId,
       characterId: characterId
     }
   })
 }
 
+// 切换标签筛选
+function toggleTag(tag) {
+  if (activeTags.value.includes(tag)) {
+    activeTags.value = activeTags.value.filter(t => t !== tag)
+  } else {
+    activeTags.value.push(tag)
+  }
+}
+
+// 格式化时间戳显示
+function formatTimestamp(event) {
+  if (timelineMode.value === 'time' && event.time_description) {
+    return event.time_description
+  }
+  return `第${event.chapter_id || '?'}章`
+}
+
+// 计算属性：按排序的事件
+const sortedEvents = computed(() => {
+  if (!locationDetail.value || !locationDetail.value.events) return []
+  
+  return [...locationDetail.value.events].sort((a, b) => {
+    // 先按章节排序
+    if (a.chapter_id !== b.chapter_id) {
+      return a.chapter_id - b.chapter_id
+    }
+    // 同章节按重要性排序
+    return b.importance - a.importance
+  })
+})
+
+// 计算属性：按重要性排序的角色
+const sortedCharacters = computed(() => {
+  if (!locationDetail.value || !locationDetail.value.characters) return []
+  
+  return [...locationDetail.value.characters].sort((a, b) => b.importance - a.importance)
+})
+
+// 计算属性：可用标签
+const availableTags = computed(() => {
+  if (!timeline.value || !timeline.value.events) return ['重要事件', '战斗', '情感', '发现', '旅行']
+  
+  const tags = new Set(['重要事件'])
+  
+  timeline.value.events.forEach(event => {
+    if (event && event.tags && Array.isArray(event.tags) && event.tags.length) {
+      event.tags.forEach(tag => tag && tags.add(tag))
+    }
+  })
+  
+  return Array.from(tags)
+})
+
+// 计算属性：过滤后的事件
+const filteredEvents = computed(() => {
+  if (!timeline.value || !timeline.value.events) return []
+  
+  // 首先根据标签过滤
+  let events = timeline.value.events.filter(event => {
+    if (!event) return false
+    
+    if (!event.tags || !Array.isArray(event.tags) || !event.tags.length) {
+      // 没有标签的事件，只有在选择了"重要事件"且该事件重要性>=4时才显示
+      return activeTags.value.includes('重要事件') && (event.importance || 0) >= 4
+    }
+    
+    // 事件标签与激活的标签有重叠则显示
+    return event.tags.some(tag => tag && activeTags.value.includes(tag))
+  })
+  
+  // 根据模式排序
+  if (timelineMode.value === 'chapter') {
+    events = [...events].sort((a, b) => {
+      // 先按章节排序
+      const chapterA = a.chapter_id || 0
+      const chapterB = b.chapter_id || 0
+      if (chapterA !== chapterB) {
+        return chapterA - chapterB
+      }
+      // 同一章节内按重要性排序
+      return (b.importance || 0) - (a.importance || 0)
+    })
+  } else {
+    events = [...events].sort((a, b) => {
+      // 按时间位置排序
+      const posA = a.time_position || 0
+      const posB = b.time_position || 0
+      return posA - posB
+    })
+  }
+  
+  return events
+})
+
 // 获取事件类型（用于时间线）
 function getEventType(importance) {
-  if (!importance) return 'info'
-  if (importance >= 4) return 'danger'
-  if (importance >= 3) return 'warning'
-  if (importance >= 2) return 'success'
-  return 'info'
+  if (importance >= 5) return 'success'
+  if (importance >= 3) return 'info'
+  return 'default'
 }
 
 // 获取事件颜色（用于时间线）
 function getEventColor(importance) {
-  if (!importance) return '#909399'
-  if (importance >= 4) return '#F56C6C'
-  if (importance >= 3) return '#E6A23C'
-  if (importance >= 2) return '#67C23A'
-  return '#909399'
+  if (importance >= 5) return '#18a058'
+  if (importance >= 3) return '#2080f0'
+  return '#d9d9d9'
+}
+
+// 获取事件中的角色头像（用于时间线）
+function getEventCharacters(event) {
+  if (!event || !event.characters || !Array.isArray(event.characters) || event.characters.length === 0) return []
+  
+  return event.characters.map(char => {
+    if (!char) return { name: '未知角色', src: '' }
+    
+    return {
+      name: char.name || '未知角色',
+      src: char.id ? getCharacterAvatar(char.id) : ''
+    }
+  }).filter(item => item !== null)
 }
 
 // 获取事件标签类型
@@ -381,18 +767,41 @@ function getEventTagType(importance) {
 }
 
 // 获取地点图标
-function getLocationIcon(id) {
+function getLocationIcon(locationId) {
+  if (!locationId) return HomeFilled;
+  
+  // 根据ID生成一个0-9的数字
+  const iconIndex = (locationId % 10);
+  
   const icons = [
-    'castle', 'home', 'mountain', 'forest', 'city',
-    'beach', 'cave', 'building', 'palace', 'village'
-  ]
-  const iconIndex = id % icons.length
-  return `https://api.dicebear.com/7.x/bottts/svg?seed=${icons[iconIndex]}_${id}`
+    HomeFilled,       // 首页图标
+    Location,         // 位置图标
+    MapLocation,      // 地图位置图标
+    School,           // 学校图标
+    OfficeBuilding,   // 办公楼图标
+    House,            // 房子图标
+    Notebook,         // 笔记本图标（可用于书籍场景）
+    ShoppingBag,      // 购物袋图标（可用于商店场景）
+    HomeFilled,       // 重复首页图标
+    Location          // 重复位置图标
+  ];
+  
+  return icons[iconIndex];
 }
 
 // 获取角色头像
-function getCharacterAvatar(id) {
-  return `https://avatars.dicebear.com/api/avataaars/${id || Math.random()}.svg`
+function getCharacterAvatar(characterId) {
+  if (!characterId) return '';
+  
+  const avatarStyles = [
+    'adventurer', 'adventurer-neutral', 'big-ears', 
+    'big-smile', 'bottts', 'croodles', 'fun-emoji', 
+    'icons', 'identicon', 'lorelei', 'micah', 'miniavs', 
+    'pixelart'
+  ];
+  
+  const styleIndex = characterId % avatarStyles.length;
+  return `https://api.dicebear.com/7.x/${avatarStyles[styleIndex]}/svg?seed=character_${characterId}`;
 }
 </script>
 

@@ -84,16 +84,18 @@ const routes = [
             meta: { title: '地点列表' }
           },
           {
-            path: 'detail',
+            path: 'detail/:locationId',
             name: 'LocationDetail',
             component: () => import('@/views/analysis/LocationDetail.vue'),
-            meta: { title: '地点详情' }
+            meta: { title: '地点详情' },
+            props: route => ({ locationId: Number(route.params.locationId), novelId: Number(route.query.novelId) })
           },
           {
-            path: 'events',
+            path: 'events/:locationId',
             name: 'LocationEvents',
             component: () => import('@/views/analysis/LocationEvents.vue'),
-            meta: { title: '地点事件' }
+            meta: { title: '地点事件' },
+            props: route => ({ locationId: Number(route.params.locationId), novelId: Number(route.query.novelId) })
           }
         ]
       }

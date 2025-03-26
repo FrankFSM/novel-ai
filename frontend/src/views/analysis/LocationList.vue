@@ -230,23 +230,39 @@ function navigateToNovelList() {
 
 // 查看地点详情
 function viewLocationDetails(locationId) {
+  if (!locationId) {
+    ElMessage.warning('地点ID无效')
+    return
+  }
+  
+  if (!selectedNovel.value) {
+    ElMessage.warning('请先选择小说')
+    return
+  }
+  
   router.push({
-    path: '/analysis/locations/detail',
-    query: { 
-      novelId: selectedNovel.value,
-      locationId: locationId
-    }
+    name: 'LocationDetail',
+    params: { locationId },
+    query: { novelId: selectedNovel.value }
   })
 }
 
 // 查看地点相关事件
 function viewLocationEvents(locationId) {
+  if (!locationId) {
+    ElMessage.warning('地点ID无效')
+    return
+  }
+  
+  if (!selectedNovel.value) {
+    ElMessage.warning('请先选择小说')
+    return
+  }
+  
   router.push({
-    path: '/analysis/locations/events',
-    query: { 
-      novelId: selectedNovel.value,
-      locationId: locationId
-    }
+    name: 'LocationEvents',
+    params: { locationId },
+    query: { novelId: selectedNovel.value }
   })
 }
 
