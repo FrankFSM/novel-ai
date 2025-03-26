@@ -273,11 +273,14 @@ function viewLocationDetails(locationId) {
     return
   }
   
+  console.log(`导航到地点详情页：地点ID=${locationId}, 小说ID=${selectedNovel.value}`);
+  
+  // 使用强制刷新模式导航，确保组件重新加载
   router.push({
     name: 'LocationDetail',
-    params: { locationId },
-    query: { novelId: selectedNovel.value }
-  })
+    params: { locationId: locationId.toString() },
+    query: { novelId: selectedNovel.value.toString(), _t: Date.now() }
+  });
 }
 
 // 查看地点相关事件

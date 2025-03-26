@@ -419,11 +419,24 @@ onMounted(async () => {
     sub_locations: []
   }
   
-  console.log('LocationDetail组件挂载，获取到的ID:', props.locationId, '小说ID:', props.novelId);
+  // 使用路由参数替代props，确保每次都从路由获取最新的ID
+  const routeLocationId = Number(route.params.locationId);
+  const routeNovelId = Number(route.query.novelId);
   
-  if (props.locationId) {
-    await loadLocationDetails()
-    await loadLocationSignificance()
+  console.log('LocationDetail组件挂载，路由参数:', {
+    locationId: routeLocationId,
+    novelId: routeNovelId,
+    propsLocationId: props.locationId,
+    propsNovelId: props.novelId
+  });
+  
+  // 优先使用路由参数，如果没有则回退到props
+  const locationId = routeLocationId || locationIdNum.value;
+  const novelId = routeNovelId || novelIdNum.value;
+  
+  if (locationId) {
+    await loadLocationDetails(locationId);
+    await loadLocationSignificance(locationId);
   } else {
     ElMessage.warning('未提供有效的地点ID')
   }
@@ -432,16 +445,25 @@ onMounted(async () => {
 // 监听时间线显示状态
 watch(showTimeline, async (newVal) => {
   if (newVal && !timeline.value) {
-    await loadLocationTimeline()
+    // 获取当前路由参数，确保使用最新的ID
+    const routeLocationId = Number(route.params.locationId);
+    const routeNovelId = Number(route.query.novelId);
+    
+    // 使用路由参数优先，如果没有则使用props
+    const locationId = routeLocationId || locationIdNum.value;
+    const novelId = routeNovelId || novelIdNum.value;
+    
+    await loadLocationTimeline(locationId, novelId);
   }
 })
 
 // 加载地点详情
-async function loadLocationDetails() {
-  const locationId = locationIdNum.value;
+async function loadLocationDetails(overrideLocationId) {
+  // 优先使用传入的ID，否则使用计算属性
+  const locationId = overrideLocationId || locationIdNum.value;
   
   if (!locationId || isNaN(locationId)) {
-    ElMessage.warning('无效的地点ID: ' + props.locationId);
+    ElMessage.warning('无效的地点ID: ' + (overrideLocationId || props.locationId));
     return;
   }
   
@@ -509,11 +531,12 @@ async function loadLocationDetails() {
 }
 
 // 加载地点重要性分析
-async function loadLocationSignificance() {
-  const locationId = locationIdNum.value;
+async function loadLocationSignificance(overrideLocationId) {
+  // 优先使用传入的ID，否则使用计算属性
+  const locationId = overrideLocationId || locationIdNum.value;
   
   if (!locationId || isNaN(locationId)) {
-    console.warn('无法加载地点重要性分析，无效的地点ID:', props.locationId);
+    console.warn('无法加载地点重要性分析，无效的地点ID:', overrideLocationId || props.locationId);
     return;
   }
   
@@ -534,17 +557,18 @@ async function loadLocationSignificance() {
 }
 
 // 加载地点时间线
-async function loadLocationTimeline() {
-  const locationId = locationIdNum.value;
-  const novelId = novelIdNum.value;
+async function loadLocationTimeline(overrideLocationId, overrideNovelId) {
+  // 优先使用传入的ID，否则使用计算属性
+  const locationId = overrideLocationId || locationIdNum.value;
+  const novelId = overrideNovelId || novelIdNum.value;
   
   if (!locationId || isNaN(locationId)) {
-    console.warn('无法加载地点时间线，无效的地点ID:', props.locationId);
+    console.warn('无法加载地点时间线，无效的地点ID:', overrideLocationId || props.locationId);
     return;
   }
   
   if (!novelId || isNaN(novelId)) {
-    console.warn('无法加载地点时间线，无效的小说ID:', props.novelId);
+    console.warn('无法加载地点时间线，无效的小说ID:', overrideNovelId || props.novelId);
     return;
   }
   
@@ -803,6 +827,32 @@ function getCharacterAvatar(characterId) {
   const styleIndex = characterId % avatarStyles.length;
   return `https://api.dicebear.com/7.x/${avatarStyles[styleIndex]}/svg?seed=character_${characterId}`;
 }
+
+// 添加路由参数变化监听
+watch(() => route.params.locationId, async (newLocationId, oldLocationId) => {
+  console.log('locationId路由参数变化', oldLocationId, '->', newLocationId);
+  if (newLocationId && newLocationId !== oldLocationId) {
+    const locationId = Number(newLocationId);
+    await loadLocationDetails(locationId);
+    await loadLocationSignificance(locationId);
+    // 重置时间线
+    timeline.value = null;
+    showTimeline.value = false;
+  }
+}, { immediate: false });
+
+// 添加novelId查询参数变化监听
+watch(() => route.query.novelId, async (newNovelId, oldNovelId) => {
+  console.log('novelId查询参数变化', oldNovelId, '->', newNovelId);
+  // 如果novelId变化，可能需要重新加载一些依赖小说ID的数据
+  if (newNovelId && newNovelId !== oldNovelId && timeline.value) {
+    // 仅当已加载过时间线时才重新加载
+    timeline.value = null;
+    if (showTimeline.value) {
+      await loadLocationTimeline();
+    }
+  }
+}, { immediate: false });
 </script>
 
 <style scoped>

@@ -18,13 +18,56 @@ def init_app(app: FastAPI) -> None:
 
 def init_logger():
     """
-    初始化日志配置
+    初始化日志配置，添加彩色日志支持
     """
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    )
-    logger.info("日志系统初始化完成")
+    # 颜色代码常量
+    RESET = "\033[0m"
+    BLACK = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
+    BOLD = "\033[1m"
+    
+    # 为不同级别定义颜色
+    class ColoredFormatter(logging.Formatter):
+        FORMATS = {
+            logging.DEBUG: BLUE + "%(asctime)s - %(name)s - " + BOLD + "%(levelname)s" + RESET + BLUE + " - %(message)s" + RESET,
+            logging.INFO: GREEN + "%(asctime)s - %(name)s - " + BOLD + "%(levelname)s" + RESET + GREEN + " - %(message)s" + RESET,
+            logging.WARNING: YELLOW + "%(asctime)s - %(name)s - " + BOLD + "%(levelname)s" + RESET + YELLOW + " - %(message)s" + RESET,
+            logging.ERROR: RED + "%(asctime)s - %(name)s - " + BOLD + "%(levelname)s" + RESET + RED + " - %(message)s" + RESET,
+            logging.CRITICAL: MAGENTA + BOLD + "%(asctime)s - %(name)s - %(levelname)s - %(message)s" + RESET
+        }
+
+        def format(self, record):
+            log_fmt = self.FORMATS.get(record.levelno)
+            formatter = logging.Formatter(log_fmt, datefmt="%Y-%m-%d %H:%M:%S")
+            return formatter.format(record)
+    
+    # 创建并配置控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(ColoredFormatter())
+    
+    # 配置根日志记录器
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    
+    # 移除现有处理器（如果有）
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # 添加新的处理器
+    root_logger.addHandler(console_handler)
+    
+    # 为常用模块配置日志级别
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)  # 减少SQL日志
+    logging.getLogger("uvicorn").setLevel(logging.INFO)
+    logging.getLogger("fastapi").setLevel(logging.INFO)
+    
+    logger.info("彩色日志系统初始化完成")
 
 def init_vector_db():
     """

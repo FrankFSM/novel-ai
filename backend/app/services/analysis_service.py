@@ -988,7 +988,18 @@ def get_item_lineage(db: Session, novel_id: int, item_id: int) -> Dict[str, Any]
     }
 
 def get_location_events(db: Session, novel_id: int, location_id: int) -> Dict[str, Any]:
-    """获取地点相关事件"""
+    """获取地点相关事件
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        location_id: 地点ID
+        
+    Returns:
+        Dict[str, Any]: 地点相关事件信息
+    """
+    logger.info(f"获取地点相关事件: novel_id={novel_id}, location_id={location_id}")
+    
     # 获取地点信息
     location = db.query(novel.Location).filter(
         novel.Location.id == location_id,
@@ -996,91 +1007,134 @@ def get_location_events(db: Session, novel_id: int, location_id: int) -> Dict[st
     ).first()
     
     if not location:
+        logger.error(f"地点不存在: novel_id={novel_id}, location_id={location_id}")
         raise ValueError("地点不存在")
     
-    # 获取该地点发生的事件
+    logger.info(f"找到地点: {location.name} (ID={location_id})")
+    
+    # 获取该地点发生的事件，按重要性和章节顺序排序
     events = db.query(novel.Event).filter(
         novel.Event.location_id == location_id,
         novel.Event.novel_id == novel_id
-    ).order_by(novel.Event.chapter_id).all()
+    ).order_by(novel.Event.importance.desc(), novel.Event.chapter_id).all()
+    
+    logger.info(f"找到地点相关事件: {len(events)}个")
     
     # 获取该地点出现的角色（通过事件参与关系）
     character_ids = set()
     event_participation = db.query(novel.EventParticipation).filter(
         novel.EventParticipation.event_id.in_([e.id for e in events])
-    ).all()
+    ).all() if events else []
     
     for participation in event_participation:
         character_ids.add(participation.character_id)
     
     characters = db.query(novel.Character).filter(
         novel.Character.id.in_(character_ids)
-    ).all()
+    ).all() if character_ids else []
     
+    # 计算每个角色在该地点事件中的出现次数
     character_counts = {}
     for participation in event_participation:
         character_counts[participation.character_id] = character_counts.get(participation.character_id, 0) + 1
     
+    # 构建角色详情列表，包含重要性和出现次数
     character_details = []
     for character in characters:
         character_details.append({
             "id": character.id,
             "name": character.name,
+            "importance": character.importance or 1,
             "count": character_counts.get(character.id, 0)
         })
     
-    # 按出现次数排序
-    character_details.sort(key=lambda x: x["count"], reverse=True)
+    # 按重要性和出现次数排序
+    character_details.sort(key=lambda x: (x["importance"], x["count"]), reverse=True)
+    
+    logger.info(f"找到相关角色: {len(character_details)}个")
     
     # 构建事件时间线
     event_timeline = []
     for event in events:
-        participants = db.query(novel.EventParticipation).filter(
+        # 获取章节信息
+        chapter_title = None
+        if event.chapter_id:
+            chapter = db.query(novel.Chapter).filter(
+                novel.Chapter.id == event.chapter_id
+            ).first()
+            if chapter:
+                chapter_title = chapter.title
+        
+        # 获取参与者信息
+        participants = []
+        participations = db.query(novel.EventParticipation).filter(
             novel.EventParticipation.event_id == event.id
         ).all()
         
-        participant_details = []
-        for p in participants:
-            character = next((c for c in characters if c.id == p.character_id), None)
+        for participation in participations:
+            character = db.query(novel.Character).filter(
+                novel.Character.id == participation.character_id
+            ).first()
             if character:
-                participant_details.append({
+                participants.append({
                     "id": character.id,
                     "name": character.name,
-                    "role": p.role
+                    "role": participation.role,
+                    "importance": character.importance or 1
                 })
         
-        chapter = None
-        if event.chapter_id:
-            chap = db.query(novel.Chapter).filter(
-                novel.Chapter.id == event.chapter_id
-            ).first()
-            if chap:
-                chapter = {
-                    "id": chap.id,
-                    "title": chap.title,
-                    "number": chap.number
-                }
+        # 按角色重要性排序
+        participants.sort(key=lambda x: x["importance"], reverse=True)
         
-        event_timeline.append({
+        # 构建事件信息
+        event_data = {
             "id": event.id,
             "name": event.name,
             "description": event.description,
-            "importance": event.importance,
+            "chapter_id": event.chapter_id,
+            "chapter_title": chapter_title,
             "time_description": event.time_description,
-            "chapter": chapter,
-            "participants": participant_details
-        })
+            "importance": event.importance,
+            "participants": participants[:5]  # 限制只返回最重要的5个参与者
+        }
+        
+        event_timeline.append(event_data)
     
-    # 构建结果
+    # 为事件添加上下文标签
+    for event in event_timeline:
+        tags = []
+        
+        # 根据重要性添加标签
+        if event.get("importance", 0) >= 4:
+            tags.append("重要事件")
+        
+        # 根据事件描述推断事件类型
+        desc = (event.get("description") or "").lower()
+        if any(keyword in desc for keyword in ["战斗", "打斗", "厮杀", "杀死"]):
+            tags.append("战斗")
+        
+        if any(keyword in desc for keyword in ["爱", "情感", "喜欢", "关心"]):
+            tags.append("情感")
+        
+        if any(keyword in desc for keyword in ["发现", "寻找", "找到", "获得"]):
+            tags.append("发现")
+        
+        if any(keyword in desc for keyword in ["旅行", "前往", "出发", "到达"]):
+            tags.append("旅行")
+            
+        # 添加标签到事件
+        event["tags"] = tags
+    
     return {
         "location": {
             "id": location.id,
             "name": location.name,
-            "description": location.description,
-            "parent_id": location.parent_id
+            "description": location.description
         },
         "events": event_timeline,
-        "characters": character_details,
+        "characters": character_details[:10],  # 限制只返回10个最重要的角色
+        "total_events": len(events),
+        "total_characters": len(character_details)
     }
 
 def filter_relationship_graph(

@@ -152,7 +152,39 @@ router.beforeEach((to, from, next) => {
   document.title = to.meta.title 
     ? `${to.meta.title} - 长篇小说智能分析系统` 
     : '长篇小说智能分析系统'
+  
+  // 检查地点和事件详情页的路由参数
+  if (to.name === 'LocationDetail' || to.name === 'EventDetail') {
+    const locationId = to.params.locationId;
+    const eventId = to.params.eventId;
+    const novelId = to.query.novelId;
     
+    // 检查是否有小说ID
+    if (!novelId) {
+      console.warn(`访问${to.name}页面但未提供小说ID，重定向到列表页`);
+      if (to.name === 'LocationDetail') {
+        next({ name: 'LocationList' });
+        return;
+      } else if (to.name === 'EventDetail') {
+        next({ name: 'EventList' });
+        return;
+      }
+    }
+    
+    // 检查是否有地点/事件ID
+    if ((to.name === 'LocationDetail' && !locationId) || 
+        (to.name === 'EventDetail' && !eventId)) {
+      console.warn(`访问${to.name}页面但未提供ID参数，重定向到列表页`);
+      if (to.name === 'LocationDetail') {
+        next({ name: 'LocationList' });
+        return;
+      } else if (to.name === 'EventDetail') {
+        next({ name: 'EventList' });
+        return;
+      }
+    }
+  }
+  
   next()
 })
 

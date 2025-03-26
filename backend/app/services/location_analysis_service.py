@@ -191,20 +191,29 @@ async def get_location_details(db: Session, location_id: int) -> Dict[str, Any]:
     Returns:
         地点详细信息
     """
+    logger.info("获取地点详情: location_id=%s", location_id)
+    
     # 获取地点
     location = db.query(novel.Location).filter(novel.Location.id == location_id).first()
     if not location:
+        logger.error("地点不存在: location_id=%s", location_id)
         raise ValueError("地点不存在")
     
-    # 获取该地点发生的事件
+    logger.info("找到地点: %s (ID=%s)", location.name, location_id)
+    
+    # 获取该地点发生的事件，按重要性排序
     events = db.query(novel.Event).filter(
         novel.Event.location_id == location_id
-    ).all()
+    ).order_by(novel.Event.importance.desc(), novel.Event.chapter_id).all()
+    
+    logger.info("找到地点相关事件: %d 个事件", len(events))
     
     # 获取地点的子地点
     sub_locations = db.query(novel.Location).filter(
         novel.Location.parent_id == location_id
     ).all()
+    
+    logger.info("找到子地点: %d 个", len(sub_locations))
     
     # 获取地点的父地点
     parent_location = None
@@ -218,9 +227,10 @@ async def get_location_details(db: Session, location_id: int) -> Dict[str, Any]:
                 "name": parent.name,
                 "description": parent.description
             }
+            logger.info("找到父地点: %s (ID=%s)", parent.name, parent.id)
     
-    # 获取在此地点出现过的角色
-    characters = set()
+    # 获取在此地点出现过的角色（通过相关事件）
+    characters_info = {}
     for event in events:
         participations = db.query(novel.EventParticipation).filter(
             novel.EventParticipation.event_id == event.id
@@ -232,7 +242,84 @@ async def get_location_details(db: Session, location_id: int) -> Dict[str, Any]:
             ).first()
             
             if character:
-                characters.add((character.id, character.name, character.importance or 1))
+                # 如果角色已在字典中，更新出现次数
+                if character.id in characters_info:
+                    characters_info[character.id]["appearances"] += 1
+                else:
+                    # 否则添加新角色信息
+                    characters_info[character.id] = {
+                        "id": character.id,
+                        "name": character.name,
+                        "importance": character.importance or 1,
+                        "appearances": 1  # 开始计数出现次数
+                    }
+    
+    # 将字典转换为列表并按重要性排序
+    characters_list = list(characters_info.values())
+    characters_list.sort(key=lambda x: (x["importance"], x["appearances"]), reverse=True)
+    
+    logger.info("找到相关角色: %d 个", len(characters_list))
+    
+    # 格式化事件数据
+    events_data = []
+    for event in events:
+        # 获取该事件的章节信息（如果有）
+        chapter_title = None
+        if event.chapter_id:
+            chapter = db.query(novel.Chapter).filter(
+                novel.Chapter.id == event.chapter_id
+            ).first()
+            if chapter:
+                chapter_title = chapter.title
+        
+        # 获取事件参与者信息
+        participants = []
+        event_participants = db.query(novel.EventParticipation).filter(
+            novel.EventParticipation.event_id == event.id
+        ).all()
+        
+        for part in event_participants:
+            character = db.query(novel.Character).filter(
+                novel.Character.id == part.character_id
+            ).first()
+            if character:
+                participants.append({
+                    "id": character.id,
+                    "name": character.name,
+                    "role": part.role,
+                    "importance": character.importance or 1
+                })
+        
+        # 按角色重要性排序
+        participants.sort(key=lambda x: x["importance"], reverse=True)
+        
+        # 事件标签
+        tags = []
+        if event.importance and event.importance >= 4:
+            tags.append("重要事件")
+        
+        # 根据事件描述添加标签
+        desc = (event.description or "").lower()
+        if any(keyword in desc for keyword in ["战斗", "打斗", "厮杀", "冲突"]):
+            tags.append("战斗")
+        if any(keyword in desc for keyword in ["爱", "情感", "喜欢", "关心"]):
+            tags.append("情感")
+        if any(keyword in desc for keyword in ["发现", "寻找", "找到", "获得"]):
+            tags.append("发现")
+        if any(keyword in desc for keyword in ["旅行", "前往", "出发", "到达"]):
+            tags.append("旅行")
+        
+        events_data.append({
+            "id": event.id,
+            "name": event.name,
+            "description": event.description,
+            "chapter_id": event.chapter_id,
+            "chapter_title": chapter_title,
+            "importance": event.importance,
+            "time_description": event.time_description,
+            "participants": participants[:5],  # 限制只返回最重要的5个参与者
+            "tags": tags
+        })
     
     # 构建结果
     result = {
@@ -248,25 +335,19 @@ async def get_location_details(db: Session, location_id: int) -> Dict[str, Any]:
             }
             for sub in sub_locations
         ],
-        "events": [
-            {
-                "id": event.id,
-                "name": event.name,
-                "description": event.description,
-                "chapter_id": event.chapter_id,
-                "importance": event.importance,
-                "time_description": event.time_description
-            }
-            for event in events
-        ],
+        "events": events_data,
         "characters": [
             {
-                "id": char_id,
-                "name": char_name,
-                "importance": importance
+                "id": char["id"],
+                "name": char["name"],
+                "importance": char["importance"],
+                "appearances": char["appearances"]
             }
-            for char_id, char_name, importance in sorted(characters, key=lambda x: x[2], reverse=True)
-        ]
+            for char in characters_list[:10]  # 限制返回前10个最重要的角色
+        ],
+        "events_count": len(events_data),
+        "characters_count": len(characters_list),
+        "sub_locations_count": len(sub_locations)
     }
     
     return result
