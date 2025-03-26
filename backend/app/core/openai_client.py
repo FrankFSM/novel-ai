@@ -320,6 +320,7 @@ class OpenAIClient:
         {
             "name": "地点名称",
             "description": "地点描述",
+            "parent": "所属更大地点（如有）",
             "importance": 1-5的重要性评分
         }
     ],
@@ -344,6 +345,18 @@ class OpenAIClient:
         }
     ]
 }
+
+关于地点识别的重要说明：
+1. 地点必须是确实存在的物理空间或区域，如城市、房间、建筑、山脉、宫殿等
+2. 以下类型不应被识别为地点：
+   - 物品或藏品（如"库藏瓷器"、"家传宝剑"）
+   - 人群或组织（如"朝廷大臣"、"江湖帮派"）
+   - 抽象概念（如"修炼境界"、"剑道"）
+   - 收藏品或展览（如"字画收藏"、"瓷器展"）
+3. 地点通常具有以下特征：
+   - 人物可以在其中移动、停留或居住
+   - 有明确的物理边界或范围
+   - 在故事中作为事件发生的场所
 
 注意：
 1. 每个实体都应该有完整的属性
@@ -452,17 +465,17 @@ class OpenAIClient:
                 {"name": "李师兄", "alias": ["李寒"], "description": "秦煜的师兄"}
             ],
             "locations": [
-                {"name": "青云门", "description": "主角所在门派"},
-                {"name": "万剑峰", "description": "秦煜修炼之地"},
-                {"name": "丹心阁", "description": "林惜炼丹之处"}
+                {"name": "青云门", "description": "主角所在门派", "parent": null, "importance": 5},
+                {"name": "万剑峰", "description": "秦煜修炼之地", "parent": "青云门", "importance": 4},
+                {"name": "丹心阁", "description": "林惜炼丹之处", "parent": "青云门", "importance": 4}
             ],
             "items": [
-                {"name": "青霜剑", "owner": "秦煜", "description": "秦煜的佩剑，上品法器"},
-                {"name": "丹炉", "owner": "林惜", "description": "林惜炼丹用的宝贝"}
+                {"name": "青霜剑", "owner": "秦煜", "description": "秦煜的佩剑，上品法器", "importance": 4},
+                {"name": "丹炉", "owner": "林惜", "description": "林惜炼丹用的宝贝", "importance": 3}
             ],
             "events": [
-                {"name": "比武大会", "participants": ["秦煜", "李师兄"], "description": "门派举行的年度比武"},
-                {"name": "炼丹大赛", "participants": ["林惜"], "description": "各门派炼丹师的较量"}
+                {"name": "比武大会", "participants": ["秦煜", "李师兄"], "description": "门派举行的年度比武", "importance": 4},
+                {"name": "炼丹大赛", "participants": ["林惜"], "description": "各门派炼丹师的较量", "importance": 4}
             ],
             "times": [
                 {"time": "三年前", "description": "主角进入门派的时间"},

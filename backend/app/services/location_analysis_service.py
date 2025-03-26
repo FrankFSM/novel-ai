@@ -1,12 +1,64 @@
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 import logging
+import re
 
 from app.models import novel
 from app.services import novel_service
 from app.core.openai_client import OpenAIClient
 
 logger = logging.getLogger(__name__)
+
+def filter_invalid_locations(locations_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """过滤掉不太可能是地点的条目
+    
+    Args:
+        locations_list: 地点列表
+        
+    Returns:
+        过滤后的地点列表
+    """
+    filtered_locations = []
+    
+    # 可能是物品或收藏品的关键词
+    non_location_keywords = [
+        '藏品', '收藏', '瓷器', '字画', '宝剑', '法宝', '丹药', '秘籍',
+        '宝物', '珍品', '玉器', '兵器', '装备', '道具', '功法', '神通'
+    ]
+    
+    for location in locations_list:
+        name = location.get("name", "").strip()
+        description = location.get("description", "").strip()
+        
+        # 检查名称是否包含非地点关键词
+        is_non_location = False
+        for keyword in non_location_keywords:
+            if keyword in name:
+                logger.info(f"跳过可能的非地点条目: {name} (含关键词: {keyword})")
+                is_non_location = True
+                break
+        
+        # 如果名称太短且没有描述，可能不是有效地点
+        if len(name) <= 2 and not description:
+            logger.info(f"跳过可能的非地点条目: {name} (名称太短且无描述)")
+            is_non_location = True
+        
+        # 确认有描述且描述中提及空间特性的更可能是地点
+        location_indicators = ['位于', '地方', '场所', '区域', '空间', '地点', '城市', '建筑', '山脉', '府邸', '宫殿']
+        has_location_indicator = False
+        for indicator in location_indicators:
+            if indicator in description:
+                has_location_indicator = True
+                break
+        
+        # 如果明确不是地点，跳过；如果有明确地点特征，保留；其他情况默认保留
+        if is_non_location and not has_location_indicator:
+            continue
+        
+        filtered_locations.append(location)
+    
+    logger.info(f"地点过滤: 原始数量 {len(locations_list)}，过滤后数量 {len(filtered_locations)}")
+    return filtered_locations
 
 async def analyze_novel_locations(db: Session, novel_id: int, force_refresh: bool = False) -> List[Dict[str, Any]]:
     """分析小说中的地点
@@ -53,6 +105,9 @@ async def analyze_novel_locations(db: Session, novel_id: int, force_refresh: boo
         locations_list = locations_data.get("locations", [])
         logger.info(f"成功获取地点分析结果，共{len(locations_list)}个地点")
         
+        # 过滤不太可能是地点的条目
+        locations_list = filter_invalid_locations(locations_list)
+        
         # 记录所有操作，用于调试和记录
         created_count = 0
         updated_count = 0
@@ -69,6 +124,9 @@ async def analyze_novel_locations(db: Session, novel_id: int, force_refresh: boo
                 # 更新现有地点
                 logger.info(f"更新现有地点: {location_data['name']}")
                 existing.description = location_data.get("description", existing.description)
+                # 更新重要性（如果提供）
+                if "importance" in location_data and location_data["importance"]:
+                    existing.importance = location_data["importance"]
                 updated_count += 1
             else:
                 # 创建新地点
@@ -76,7 +134,8 @@ async def analyze_novel_locations(db: Session, novel_id: int, force_refresh: boo
                 new_location = novel.Location(
                     novel_id=novel_id,
                     name=location_data["name"],
-                    description=location_data.get("description", "")
+                    description=location_data.get("description", ""),
+                    importance=location_data.get("importance", 1)  # 默认值为1
                 )
                 db.add(new_location)
                 created_count += 1

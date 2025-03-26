@@ -87,6 +87,7 @@ class Location(Base):
     name = Column(String(100), nullable=False, index=True)
     description = Column(Text, nullable=True)
     parent_id = Column(Integer, ForeignKey("locations.id"), nullable=True)  # 父级地点（如华山属于五岳）
+    importance = Column(Integer, default=1)  # 重要性评分（1-5）
     
     # 关系
     novel = relationship("Novel", back_populates="locations")
