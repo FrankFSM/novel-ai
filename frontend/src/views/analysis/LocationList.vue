@@ -295,11 +295,14 @@ function viewLocationEvents(locationId) {
     return
   }
   
+  console.log(`导航到地点相关事件页：地点ID=${locationId}, 小说ID=${selectedNovel.value}`);
+  
+  // 使用强制刷新模式导航，确保组件重新加载
   router.push({
     name: 'LocationEvents',
-    params: { locationId },
-    query: { novelId: selectedNovel.value }
-  })
+    params: { locationId: locationId.toString() },
+    query: { novelId: selectedNovel.value.toString(), _t: Date.now() }
+  });
 }
 
 // 获取地点图标（使用基于ID的确定性图标）

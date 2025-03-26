@@ -107,7 +107,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
@@ -134,32 +134,82 @@ const loading = ref(false)
 
 // 处理生命周期
 onMounted(async () => {
-  if (props.locationId) {
-    await loadLocationDetails()
+  // 使用路由参数替代props，确保每次都从路由获取最新的ID
+  const routeLocationId = Number(route.params.locationId);
+  const routeNovelId = Number(route.query.novelId);
+  
+  console.log('LocationEvents组件挂载，路由参数:', {
+    locationId: routeLocationId,
+    novelId: routeNovelId,
+    propsLocationId: props.locationId,
+    propsNovelId: props.novelId
+  });
+  
+  // 优先使用路由参数，如果没有则回退到props
+  const locationId = routeLocationId || props.locationId;
+  
+  if (locationId) {
+    await loadLocationDetails(locationId);
   } else {
     ElMessage.warning('未提供有效的地点ID')
   }
 })
 
+// 添加路由参数变化监听
+watch(() => route.params.locationId, async (newLocationId, oldLocationId) => {
+  console.log('locationId路由参数变化', oldLocationId, '->', newLocationId);
+  if (newLocationId && newLocationId !== oldLocationId) {
+    const locationId = Number(newLocationId);
+    await loadLocationDetails(locationId);
+  }
+}, { immediate: false });
+
 // 加载地点详情
-async function loadLocationDetails() {
-  if (!props.locationId) return
+async function loadLocationDetails(overrideLocationId) {
+  // 优先使用传入的ID，否则使用props
+  const locationId = overrideLocationId || props.locationId;
+  
+  if (!locationId) {
+    console.warn('无效的地点ID，无法加载详情');
+    return;
+  }
   
   try {
     loading.value = true
+    console.log('正在加载地点ID:', locationId, '的详情数据');
     
-    const data = await locationApi.getLocationDetails(props.locationId)
+    const data = await locationApi.getLocationDetails(locationId)
     console.log('地点详情API响应:', data)
     
     if (data) {
+      // 确保数据结构完整
+      if (!data.events) data.events = [];
+      if (!data.characters) data.characters = [];
+      
       locationDetail.value = data
       ElMessage.success('成功加载地点事件数据')
     } else {
       ElMessage.warning('地点详情数据为空')
+      // 初始化默认值以防止渲染错误
+      locationDetail.value = {
+        id: locationId,
+        name: '未找到地点',
+        description: '无法获取地点详情',
+        events: [],
+        characters: []
+      };
     }
   } catch (error) {
     console.error('获取地点详情失败:', error)
     ElMessage.error('获取地点详情失败: ' + (error.message || '未知错误'))
+    // 初始化默认值以防止渲染错误
+    locationDetail.value = {
+      id: locationId,
+      name: '加载失败',
+      description: '地点详情加载失败',
+      events: [],
+      characters: []
+    };
   } finally {
     loading.value = false
   }
@@ -172,22 +222,41 @@ function goBack() {
 
 // 前往地点详情页
 function goToLocationDetail() {
+  // 获取当前路由参数，确保使用最新的ID
+  const routeLocationId = Number(route.params.locationId);
+  const routeNovelId = Number(route.query.novelId);
+  
+  // 优先使用路由参数，如果没有则回退到props
+  const locationId = routeLocationId || props.locationId;
+  const novelId = routeNovelId || props.novelId;
+  
+  console.log(`导航到地点详情页：地点ID=${locationId}, 小说ID=${novelId}`);
+  
   router.push({
     name: 'LocationDetail',
-    params: { locationId: props.locationId },
-    query: { novelId: props.novelId }
-  })
+    params: { locationId: locationId.toString() },
+    query: { novelId: novelId.toString(), _t: Date.now() }
+  });
 }
 
 // 查看角色详情
 function viewCharacterDetail(characterId) {
+  // 获取当前路由查询参数，确保使用最新的小说ID
+  const routeNovelId = Number(route.query.novelId);
+  
+  // 优先使用路由参数，如果没有则回退到props
+  const novelId = routeNovelId || props.novelId;
+  
+  console.log(`导航到角色详情页：角色ID=${characterId}, 小说ID=${novelId}`);
+  
   router.push({
     path: '/analysis/characters/journey',
     query: {
-      novelId: props.novelId,
-      characterId: characterId
+      novelId: novelId.toString(),
+      characterId: characterId.toString(),
+      _t: Date.now()
     }
-  })
+  });
 }
 
 // 获取事件参与者
