@@ -1,4 +1,5 @@
 frontend/node_modules/
+frontend/dist/
 
 # 忽略所有 .pyc 文件
 *.pyc
