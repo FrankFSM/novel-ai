@@ -86,20 +86,38 @@ const toggleTheme = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 100%;
   padding: 0 20px;
+  flex-wrap: wrap;
+  width: 100%;
+  overflow: visible;
+  position: relative;
+  min-height: 60px;
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  min-width: 150px;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 10px 0;
+  margin-right: 10px;
 }
 
 .right {
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 0;
 }
 
 .novel-selector {
   display: flex;
   align-items: center;
   margin-right: 20px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .novel-selector span {
@@ -112,5 +130,39 @@ const toggleTheme = () => {
   color: #409EFF;
   display: flex;
   align-items: center;
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+  .header-container {
+    flex-direction: column;
+    padding: 10px;
+    height: auto;
+    min-height: 80px;
+  }
+
+  .left, .right {
+    width: 100%;
+    justify-content: center;
+    margin-bottom: 10px;
+  }
+
+  .left {
+    order: 2;
+  }
+
+  .right {
+    order: 1;
+  }
+
+  .novel-selector {
+    margin-right: 0;
+    width: 100%;
+    justify-content: center;
+    margin-bottom: 10px;
+  }
 }
 </style> 

@@ -10,6 +10,7 @@
               placeholder="请选择小说" 
               @change="handleNovelChange"
               :loading="novelStore.loading"
+              class="full-width-select"
             >
               <el-option
                 v-for="novel in novelStore.novels"
@@ -24,6 +25,7 @@
               @click="analyzeCharacters" 
               :disabled="!selectedNovel"
               :loading="loading"
+              class="analyze-button"
             >
               分析角色
             </el-button>
@@ -262,7 +264,13 @@ function truncateText(text, maxLength) {
 
 <style scoped>
 .character-list-container {
-  height: 100%;
+  min-height: 100%;
+  height: auto;
+  width: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  position: relative;
 }
 
 .page-header {
@@ -270,7 +278,13 @@ function truncateText(text, maxLength) {
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 15px;
+  margin-bottom: 15px;
+  position: sticky;
+  top: 0;
+  background-color: white;
+  z-index: 10;
+  padding: 10px 0;
 }
 
 .page-header h2 {
@@ -280,20 +294,37 @@ function truncateText(text, maxLength) {
 .header-actions {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.full-width-select {
+  min-width: 180px;
+}
+
+.analyze-button {
+  white-space: nowrap;
 }
 
 .loading-container {
   padding: 20px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
 }
 
 .loading-text {
   text-align: center;
-  margin-top: 10px;
+  margin-top: 20px;
   color: #909399;
 }
 
 .character-list {
   margin-top: 20px;
+  overflow: visible;
+  padding-bottom: 30px;
 }
 
 .character-col {
@@ -303,20 +334,28 @@ function truncateText(text, maxLength) {
 .character-card {
   height: 100%;
   transition: transform 0.3s;
+  display: flex;
+  flex-direction: column;
 }
 
 .character-card:hover {
   transform: translateY(-5px);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.1);
 }
 
 .character-avatar {
   display: flex;
   justify-content: center;
   margin-bottom: 10px;
+  padding-top: 15px;
 }
 
 .character-info {
   text-align: center;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 10px 10px;
 }
 
 .character-name {
@@ -324,19 +363,24 @@ function truncateText(text, maxLength) {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .character-description {
   color: #606266;
   margin-bottom: 10px;
-  height: 60px;
+  min-height: 60px;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 .character-aliases {
   margin-bottom: 15px;
+  flex: 1;
 }
 
 .aliases-label {
@@ -361,5 +405,91 @@ function truncateText(text, maxLength) {
   justify-content: center;
   gap: 10px;
   margin-top: 15px;
+  flex-wrap: wrap;
+}
+
+/* 确保内容在所有设备上都可滚动 */
+:deep(.el-card__body) {
+  overflow-y: visible;
+  height: auto;
+}
+
+:deep(.el-card) {
+  overflow: visible;
+}
+
+/* 针对滚动条的样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #909399;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+  }
+  
+  .header-actions {
+    flex-direction: column;
+    width: 100%;
+    gap: 15px;
+    margin-top: 10px;
+  }
+  
+  .full-width-select {
+    width: 100%;
+  }
+  
+  .analyze-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+  
+  .character-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .character-actions .el-button {
+    margin-right: 0;
+    margin-bottom: 8px;
+    width: 100%;
+  }
+  
+  .character-card {
+    margin-bottom: 10px;
+  }
+  
+  .character-avatar {
+    padding-top: 10px;
+  }
+  
+  :deep(.el-empty__image) {
+    width: 120px !important;
+    height: 120px !important;
+  }
+}
+
+/* 触摸设备滚动优化 */
+@media (pointer: coarse) {
+  .character-list-container {
+    -webkit-overflow-scrolling: touch;
+  }
 }
 </style> 

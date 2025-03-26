@@ -84,6 +84,8 @@ const activeMenu = computed(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .logo-container {
@@ -93,6 +95,7 @@ const activeMenu = computed(() => {
   justify-content: center;
   padding: 10px 0;
   margin-bottom: 20px;
+  flex-shrink: 0;
 }
 
 .logo-icon {
@@ -106,10 +109,31 @@ const activeMenu = computed(() => {
   font-size: 16px;
   margin: 0;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .el-menu-vertical {
   border-right: none;
-  height: calc(100% - 80px);
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+@media (max-width: 768px) {
+  .logo-container {
+    padding: 5px 0;
+    margin-bottom: 10px;
+    justify-content: center;
+  }
+  
+  .title {
+    display: none;
+  }
+  
+  .logo-icon {
+    margin-right: 0;
+  }
 }
 </style> 

@@ -1113,7 +1113,12 @@ async function analyzeCharacters() {
 
 <style scoped>
 .journey-container {
-  height: 100%;
+  min-height: 100%;
+  height: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
 }
 
 .page-header {
@@ -1121,7 +1126,13 @@ async function analyzeCharacters() {
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 15px;
+  margin-bottom: 10px;
+  position: sticky;
+  top: 0;
+  background-color: white;
+  z-index: 10;
+  padding: 10px 0;
 }
 
 .page-header h2 {
@@ -1131,14 +1142,26 @@ async function analyzeCharacters() {
 .header-actions {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .loading-container {
   padding: 20px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.loading-text {
+  margin-top: 20px;
+  color: #909399;
 }
 
 .journey-content {
   margin-top: 20px;
+  overflow: visible;
 }
 
 .character-info-card {
@@ -1147,12 +1170,18 @@ async function analyzeCharacters() {
 
 .character-info {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 20px;
+}
+
+.character-avatar {
+  flex-shrink: 0;
 }
 
 .character-details {
   flex: 1;
+  min-width: 200px;
 }
 
 .character-name {
@@ -1160,6 +1189,7 @@ async function analyzeCharacters() {
   margin-bottom: 10px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -1172,6 +1202,7 @@ async function analyzeCharacters() {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  margin-top: 10px;
 }
 
 .aliases-label {
@@ -1182,10 +1213,13 @@ async function analyzeCharacters() {
 .character-stats {
   display: flex;
   gap: 20px;
+  flex-wrap: wrap;
 }
 
 .stat-item {
   text-align: center;
+  flex: 1;
+  min-width: 80px;
 }
 
 .stat-value {
@@ -1202,10 +1236,11 @@ async function analyzeCharacters() {
 
 .journey-visualization {
   min-height: 400px;
+  margin-top: 20px;
 }
 
 .stages-container {
-  padding: 20px;
+  padding: 20px 0;
   width: 100%;
 }
 
@@ -1259,7 +1294,7 @@ async function analyzeCharacters() {
 }
 
 .events-container {
-  padding: 10px;
+  padding: 10px 0;
 }
 
 .events-filter {
@@ -1279,6 +1314,7 @@ async function analyzeCharacters() {
 .filter-label {
   font-size: 14px;
   color: #606266;
+  white-space: nowrap;
 }
 
 .event-card {
@@ -1293,6 +1329,8 @@ async function analyzeCharacters() {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .event-header h4 {
@@ -1310,15 +1348,23 @@ async function analyzeCharacters() {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  gap: 5px;
 }
 
 .participants-label, .location-label {
   color: #909399;
-  margin-right: 5px;
+  white-space: nowrap;
+}
+
+.event-location {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .emotions-container {
-  padding: 20px;
+  padding: 10px 0;
 }
 
 .emotions-summary {
@@ -1373,7 +1419,7 @@ async function analyzeCharacters() {
 }
 
 .relationships-container {
-  padding: 10px;
+  padding: 10px 0;
 }
 
 .relationship-filters {
@@ -1390,6 +1436,7 @@ async function analyzeCharacters() {
   font-size: 16px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -1418,8 +1465,9 @@ async function analyzeCharacters() {
 .relationship-avatars {
   display: flex;
   align-items: center;
-  justify-content: space-around;
+  justify-content: center;
   margin-bottom: 15px;
+  gap: 15px;
 }
 
 .relation-icon {
@@ -1437,6 +1485,7 @@ async function analyzeCharacters() {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1452,6 +1501,7 @@ async function analyzeCharacters() {
 .relationship-strength {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 0 10px;
 }
@@ -1470,6 +1520,7 @@ async function analyzeCharacters() {
 
 :deep(.el-progress) {
   flex: 1;
+  min-width: 100px;
   margin: 0;
 }
 
@@ -1479,26 +1530,90 @@ async function analyzeCharacters() {
   gap: 10px;
 }
 
-.selected-info {
-  display: none;
-}
-
-/* 调整下拉框样式 */
 .select-with-label {
   min-width: 150px;
 }
 
-/* 确保下拉框中的文本不会被截断 */
-:deep(.el-select-dropdown__item) {
-  white-space: normal;
+/* 确保内容在所有设备上都可滚动 */
+:deep(.el-card__body) {
+  overflow-y: visible;
   height: auto;
-  padding: 8px 20px;
-  line-height: 1.5;
 }
 
-:deep(.el-input__inner) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* 移动设备适配 */
+@media screen and (max-width: 768px) {
+  .header-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .header-actions .el-select {
+    width: 100%;
+  }
+  
+  .header-actions .el-button {
+    width: 100%;
+  }
+  
+  .character-info {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .character-details {
+    width: 100%;
+    text-align: center;
+  }
+  
+  .character-stats {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .relationship-list {
+    grid-template-columns: 1fr;
+  }
+  
+  .events-filter, .relationship-filters {
+    flex-direction: column;
+  }
+  
+  .filter-item {
+    width: 100%;
+  }
+  
+  .filter-item .el-select {
+    width: 100%;
+  }
+  
+  :deep(.el-tabs__nav) {
+    width: 100%;
+    display: flex;
+  }
+  
+  :deep(.el-tabs__item) {
+    flex: 1;
+    text-align: center;
+  }
+}
+
+/* 针对滚动条的样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #909399;
 }
 </style> 

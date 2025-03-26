@@ -1,26 +1,247 @@
-/* 通用样式 */
+/* 全局样式重置和基础设置 */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-body {
-  font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+html, body {
+  height: 100%;
+  width: 100%;
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: #2c3e50;
   font-size: 14px;
-  line-height: 1.5;
+  color: #333;
+  background-color: #f5f7fa;
+  overflow: hidden;
 }
 
-a {
-  text-decoration: none;
-  color: #409EFF;
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #909399;
+}
+
+/* 滚动容器样式 */
+.el-main, .el-scrollbar, .el-scrollbar__wrap, .el-card, .el-card__body {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch !important; /* 移动端流畅滚动 */
+}
+
+/* 卡片样式优化 */
+.el-card {
+  margin-bottom: 20px;
+  border-radius: 4px;
+  border: none;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05) !important;
+  transition: all 0.3s;
+}
+
+.el-card:hover {
+  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.08) !important;
+}
+
+.el-card__header {
+  padding: 15px 20px;
+  font-weight: bold;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.el-card__body {
+  padding: 20px;
+}
+
+/* 表格容器滚动优化 */
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 移动端响应式调整 */
+@media screen and (max-width: 768px) {
+  .el-form-item__label {
+    float: none !important;
+    display: block !important;
+    text-align: left !important;
+    margin-bottom: 5px !important;
+  }
+
+  .el-form-item__content {
+    margin-left: 0 !important;
+  }
+
+  .el-input, .el-select {
+    width: 100% !important;
+  }
+
+  .el-button {
+    display: block;
+    width: 100%;
+    margin-left: 0 !important;
+    margin-bottom: 10px;
+  }
+
+  .el-card__body, .el-card__header {
+    padding: 15px;
+  }
+}
+
+/* 固定高度的滚动容器 */
+.scrollable-container {
+  max-height: 600px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 加载状态样式 */
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  width: 100%;
+}
+
+.loading-container .el-loading-text {
+  font-size: 14px;
+  margin-top: 10px;
+}
+
+/* 空状态样式 */
+.empty-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  width: 100%;
+  color: #909399;
+}
+
+.empty-container .el-icon {
+  font-size: 48px;
+  margin-bottom: 10px;
+}
+
+.empty-container .empty-text {
+  font-size: 14px;
+}
+
+/* 基础边距和间隔 */
+.mt-10 { margin-top: 10px; }
+.mt-20 { margin-top: 20px; }
+.mb-10 { margin-bottom: 10px; }
+.mb-20 { margin-bottom: 20px; }
+.ml-10 { margin-left: 10px; }
+.mr-10 { margin-right: 10px; }
+.pa-10 { padding: 10px; }
+.pa-20 { padding: 20px; }
+
+/* 弹性布局工具类 */
+.d-flex { display: flex; }
+.flex-row { flex-direction: row; }
+.flex-column { flex-direction: column; }
+.justify-start { justify-content: flex-start; }
+.justify-center { justify-content: center; }
+.justify-end { justify-content: flex-end; }
+.justify-between { justify-content: space-between; }
+.align-start { align-items: flex-start; }
+.align-center { align-items: center; }
+.align-end { align-items: flex-end; }
+.flex-wrap { flex-wrap: wrap; }
+.flex-grow-1 { flex-grow: 1; }
+.gap-10 { gap: 10px; }
+.gap-20 { gap: 20px; }
+
+/* 响应式间距调整 */
+@media screen and (max-width: 768px) {
+  .pa-20 { padding: 10px; }
+  .pa-responsive { padding: 10px; }
+}
+
+@media screen and (min-width: 769px) {
+  .pa-responsive { padding: 20px; }
+}
+
+/* 触摸设备滚动优化 */
+@media (pointer: coarse) {
+  .el-main, .el-scrollbar, .scrollable-container, .el-card__body {
+    -webkit-overflow-scrolling: touch !important;
+  }
+}
+
+/* 全局滚动行为 */
+:root {
+  --app-height: 100%;
+}
+
+/* 确保所有滚动容器能正确滚动 */
+.el-main, 
+.el-scrollbar, 
+.el-scrollbar__view,
+.el-card,
+.el-card__body,
+.character-list-container,
+.journey-container,
+.character-list,
+.journey-content,
+.relationship-list {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 适配移动设备的触摸滚动 */
+@media (max-width: 768px) {
+  .el-main, 
+  .character-list-container,
+  .journey-container {
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto !important;
+  }
+}
+
+/* 卡片内部滚动区域 */
+.el-card__body {
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+/* 确保内容卡片可以扩展 */
+.el-card {
+  display: flex;
+  flex-direction: column;
+  height: auto !important;
+  min-height: 100px;
+}
+
+/* 卡片内容区域可以自动扩展 */
+.el-card__body {
+  flex: 1;
+  height: auto !important;
 }
 
 .page-container {
   padding: 20px;
+  height: auto;
+  min-height: 100%;
+  position: relative;
 }
 
 .page-title {
@@ -41,36 +262,7 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-/* 加载样式 */
-.loading-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100%;
-  min-height: 200px;
-}
-
-/* 空状态样式 */
-.empty-container {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  height: 100%;
-  min-height: 200px;
-  color: #909399;
-}
-
-.empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.empty-text {
-  font-size: 16px;
-  margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
 /* 响应式样式 */
@@ -81,5 +273,24 @@ a {
   
   .page-title {
     font-size: 20px;
+  }
+
+  .header-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .el-select {
+    width: 100% !important;
+  }
+  
+  /* 修复移动端的滚动问题 */
+  .character-list, 
+  .journey-content,
+  .relationship-list {
+    max-height: none !important;
+    height: auto !important;
   }
 } 

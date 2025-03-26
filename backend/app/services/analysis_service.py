@@ -85,25 +85,46 @@ async def get_relationship_graph(
                 # 检查角色是否已存在
                 existing_character = db.query(novel.Character).filter(
                     novel.Character.novel_id == novel_id,
-                    novel.Character.name == node["name"]
+                    # 使用更精确的名称匹配，处理可能有空格或标点符号差异的情况
+                    novel.Character.name.ilike(node["name"].strip())
                 ).first()
                 
                 if existing_character:
                     # 更新现有角色
                     existing_character.description = node.get("description", existing_character.description)
-                    existing_character.importance = node.get("importance", existing_character.importance)
+                    # 仅当新重要性高于现有重要性时更新
+                    if node.get("importance", 0) > (existing_character.importance or 0):
+                        existing_character.importance = node.get("importance")
+                    # 记录角色ID映射
                     character_map[node["name"]] = existing_character.id
+                    logger.info(f"更新已存在角色: {node['name']} (ID: {existing_character.id})")
                 else:
-                    # 创建新角色
-                    new_character = novel.Character(
-                        name=node["name"],
-                        novel_id=novel_id,
-                        description=node.get("description", ""),
-                        importance=node.get("importance", 3)
-                    )
-                    db.add(new_character)
-                    db.flush()
-                    character_map[node["name"]] = new_character.id
+                    # 再次检查名称相似但不完全匹配的角色
+                    similar_characters = db.query(novel.Character).filter(
+                        novel.Character.novel_id == novel_id,
+                        novel.Character.name.ilike(f"%{node['name'].split()[0]}%") if ' ' in node['name'] else novel.Character.name.ilike(f"%{node['name']}%")
+                    ).all()
+                    
+                    if similar_characters:
+                        # 找到最相似的角色
+                        logger.info(f"发现相似角色，名称: {node['name']}")
+                        similar_character = similar_characters[0]
+                        # 用户可以后续手动合并
+                        # 这里仍然使用现有角色
+                        character_map[node["name"]] = similar_character.id
+                        logger.info(f"使用相似角色: {similar_character.name} (ID: {similar_character.id})")
+                    else:
+                        # 创建新角色
+                        new_character = novel.Character(
+                            name=node["name"],
+                            novel_id=novel_id,
+                            description=node.get("description", ""),
+                            importance=node.get("importance", 3)
+                        )
+                        db.add(new_character)
+                        db.flush()
+                        character_map[node["name"]] = new_character.id
+                        logger.info(f"创建新角色: {node['name']} (ID: {new_character.id})")
             
             # 保存关系数据
             for edge in edges:
@@ -335,6 +356,52 @@ async def get_relationship_graph(
                 source_name = rel.get("source_name")
                 target_name = rel.get("target_name")
                 
+                # 首先检查源角色和目标角色是否在已知角色映射中
+                # 如果不在，则检查数据库中是否已存在相同名称的角色
+                if source_name not in character_map:
+                    # 检查是否已有相同名称的角色
+                    existing_source = db.query(novel.Character).filter(
+                        novel.Character.novel_id == novel_id,
+                        novel.Character.name == source_name
+                    ).first()
+                    
+                    if existing_source:
+                        # 使用已存在的角色
+                        character_map[source_name] = {"id": existing_source.id, "character_id": existing_source.id}
+                    else:
+                        # 创建新角色
+                        new_source = novel.Character(
+                            name=source_name,
+                            novel_id=novel_id,
+                            description="",  # 可以后续更新
+                            importance=2  # 默认重要性
+                        )
+                        db.add(new_source)
+                        db.flush()
+                        character_map[source_name] = {"id": new_source.id, "character_id": new_source.id}
+                
+                if target_name not in character_map:
+                    # 检查是否已有相同名称的角色
+                    existing_target = db.query(novel.Character).filter(
+                        novel.Character.novel_id == novel_id,
+                        novel.Character.name == target_name
+                    ).first()
+                    
+                    if existing_target:
+                        # 使用已存在的角色
+                        character_map[target_name] = {"id": existing_target.id, "character_id": existing_target.id}
+                    else:
+                        # 创建新角色
+                        new_target = novel.Character(
+                            name=target_name,
+                            novel_id=novel_id,
+                            description="",  # 可以后续更新
+                            importance=2  # 默认重要性
+                        )
+                        db.add(new_target)
+                        db.flush()
+                        character_map[target_name] = {"id": new_target.id, "character_id": new_target.id}
+                
                 if source_name in character_map and target_name in character_map:
                     # 检查是否已存在这对角色的关系
                     pair_exists = False
@@ -361,19 +428,29 @@ async def get_relationship_graph(
                         edge_id += 1
             
             # 添加关系到数据库
+            added_relation_count = 0
+            existing_relation_count = 0
             for edge in edges:
                 if edge.get("id") > len(existing_relationships):  # 只添加新的关系
                     source_char_id = character_map[edge["source_name"]]["character_id"]
                     target_char_id = character_map[edge["target_name"]]["character_id"]
                     
-                    # 检查关系是否已存在
-                    existing = db.query(novel.Relationship).filter(
+                    # 检查正向关系是否已存在
+                    existing_forward = db.query(novel.Relationship).filter(
                         novel.Relationship.novel_id == novel_id,
                         novel.Relationship.from_character_id == source_char_id,
                         novel.Relationship.to_character_id == target_char_id
                     ).first()
                     
-                    if not existing:
+                    # 检查反向关系是否已存在
+                    existing_backward = db.query(novel.Relationship).filter(
+                        novel.Relationship.novel_id == novel_id,
+                        novel.Relationship.from_character_id == target_char_id,
+                        novel.Relationship.to_character_id == source_char_id
+                    ).first()
+                    
+                    if not existing_forward and not existing_backward:
+                        # 只有当正反两个方向都没有关系时才添加
                         new_relationship = novel.Relationship(
                             novel_id=novel_id,
                             from_character_id=source_char_id,
@@ -382,9 +459,12 @@ async def get_relationship_graph(
                             description=edge["description"]
                         )
                         db.add(new_relationship)
+                        added_relation_count += 1
+                    else:
+                        existing_relation_count += 1
             
             db.commit()
-            logger.info(f"添加了新的角色关系到数据库")
+            logger.info(f"添加了{added_relation_count}个新的角色关系到数据库，跳过了{existing_relation_count}个已存在的关系")
                 
         except Exception as e:
             logger.error(f"使用OpenAI提取角色关系失败: {str(e)}")
