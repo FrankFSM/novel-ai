@@ -10,6 +10,14 @@ export default {
     }).then(response => response.data)
   },
   
+  // 获取小说的所有角色（无需重新分析）
+  getNovelCharacters(novelId) {
+    return request({
+      url: `/character-analysis/novels/${novelId}/characters`,
+      method: 'get'
+    }).then(response => response.data)
+  },
+  
   // 获取角色详细信息
   getCharacterDetails(characterId) {
     return request({

@@ -1,13 +1,15 @@
-import novelApi from './modules/novel'
-import qaApi from './modules/qa'
-import analysisApi from './modules/analysis'
-import characterApi from './modules/character'
-import locationApi from './modules/location'
+import novel from './modules/novel'
+import character from './modules/character'
+import analysis from './modules/analysis'
+import qa from './modules/qa'
+import location from './modules/location'
+import event from './modules/event'
 
 export {
-  novelApi,
-  qaApi,
-  analysisApi,
-  characterApi,
-  locationApi
+  novel as novelApi,
+  character as characterApi,
+  analysis as analysisApi,
+  qa as qaApi,
+  location as locationApi,
+  event as eventApi
 } 

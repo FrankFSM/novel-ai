@@ -98,6 +98,27 @@ const routes = [
             props: route => ({ locationId: Number(route.params.locationId), novelId: Number(route.query.novelId) })
           }
         ]
+      },
+      {
+        path: 'events',
+        name: 'EventAnalysis',
+        redirect: '/analysis/events/list',
+        meta: { title: '事件分析' },
+        children: [
+          {
+            path: 'list',
+            name: 'EventList',
+            component: () => import('@/views/analysis/EventList.vue'),
+            meta: { title: '事件列表' }
+          },
+          {
+            path: 'detail/:eventId',
+            name: 'EventDetail',
+            component: () => import('@/views/analysis/EventDetail.vue'),
+            meta: { title: '事件详情' },
+            props: route => ({ eventId: Number(route.params.eventId), novelId: Number(route.query.novelId) })
+          }
+        ]
       }
     ]
   },

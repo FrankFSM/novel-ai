@@ -28,6 +28,27 @@ async def analyze_characters(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"角色分析失败: {str(e)}")
 
+@router.get("/novels/{novel_id}/characters", response_model=NovelCharactersResponse)
+async def get_novel_characters(
+    novel_id: int = Path(..., title="小说ID"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取小说中的所有角色
+    
+    - **novel_id**: 小说ID
+    """
+    try:
+        characters = await analyze_novel_characters(db, novel_id, force_refresh=False)
+        return {
+            "novel_id": novel_id,
+            "characters": characters
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取角色列表失败: {str(e)}")
+
 @router.get("/characters/{character_id}/details", response_model=CharacterDetail)
 async def get_character_detail(
     character_id: int = Path(..., title="角色ID"),

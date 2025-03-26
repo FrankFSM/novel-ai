@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict, Any
 
 from app.core.database import get_db
 from app.schemas.location_analysis import LocationAnalysisResponse, LocationSignificance, LocationDetail, NovelLocationsResponse
 from app.models.schemas import TimelineResponse
-from app.services.location_analysis_service import analyze_novel_locations, get_location_details, analyze_location_significance
+from app.services.location_analysis_service import analyze_novel_locations, get_location_details, analyze_location_significance, analyze_all_location_events
 from app.services import analysis_service
 
 router = APIRouter()
@@ -115,4 +115,28 @@ async def get_location_timeline(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取地点时间线失败: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"获取地点时间线失败: {str(e)}")
+
+@router.post("/novels/{novel_id}/locations/events/analyze", response_model=Dict[str, Any])
+async def analyze_all_location_events_endpoint(
+    novel_id: int = Path(..., title="小说ID"),
+    force_refresh: bool = Query(False, title="强制刷新"),
+    db: Session = Depends(get_db)
+):
+    """
+    分析小说中所有地点的相关事件
+    
+    - **novel_id**: 小说ID
+    - **force_refresh**: 是否强制刷新分析结果
+    """
+    try:
+        result = await analyze_all_location_events(
+            db=db, 
+            novel_id=novel_id, 
+            force_refresh=force_refresh
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"地点事件全局分析失败: {str(e)}") 

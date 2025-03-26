@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 import logging
 import re
+import json
 
 from app.models import novel
 from app.services import novel_service
@@ -328,4 +329,177 @@ async def analyze_location_significance(db: Session, location_id: int) -> Dict[s
         
     except Exception as e:
         logger.error(f"地点重要性分析失败: {str(e)}")
+        raise
+
+async def analyze_all_location_events(db: Session, novel_id: int, force_refresh: bool = False) -> Dict[str, Any]:
+    """分析小说中所有地点的相关事件
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        force_refresh: 是否强制刷新分析结果
+        
+    Returns:
+        分析结果统计信息
+    """
+    # 获取小说
+    db_novel = novel_service.get_novel(db=db, novel_id=novel_id)
+    if not db_novel:
+        raise ValueError("小说不存在")
+    
+    # 获取小说所有地点
+    locations = db.query(novel.Location).filter(
+        novel.Location.novel_id == novel_id
+    ).all()
+    
+    if not locations:
+        return {"status": "error", "message": "小说中没有地点数据", "locations_count": 0, "events_count": 0}
+    
+    # 如果不是强制刷新，检查是否已有事件数据
+    if not force_refresh:
+        events_count = db.query(novel.Event).filter(
+            novel.Event.novel_id == novel_id,
+            novel.Event.location_id != None
+        ).count()
+        
+        if events_count > 0:
+            return {
+                "status": "success", 
+                "message": "使用现有地点事件数据", 
+                "locations_count": len(locations),
+                "events_count": events_count
+            }
+    
+    # 获取小说内容
+    content = novel_service.get_novel_chapters_content(db=db, novel_id=novel_id)
+    if not content:
+        raise ValueError("小说内容为空")
+    
+    # 使用AI分析所有地点相关事件
+    try:
+        # 统计数据
+        locations_processed = 0
+        events_created = 0
+        events_updated = 0
+        
+        # 处理每个地点
+        for location in locations:
+            # 仅处理重要地点，提高效率
+            if hasattr(location, 'importance') and location.importance and location.importance < 2:
+                continue
+                
+            logger.info(f"分析地点 '{location.name}' 的相关事件")
+            # 构建分析提示
+            prompt = f"""
+            请分析以下小说内容，识别与地点"{location.name}"相关的所有重要事件。
+            
+            遵循以下规则：
+            1. 仅返回直接发生在该地点的事件，或与该地点有明确关联的事件
+            2. 事件应具有明确的情节意义，不要包括琐碎的日常活动
+            3. 事件重要性评分标准：
+               - 5分：关键情节转折，对整个故事有决定性影响
+               - 4分：重要事件，对故事发展有显著影响
+               - 3分：次要但有意义的事件，推动情节发展
+               - 2分：背景事件，丰富故事细节
+               - 1分：提及但不重要的事件
+            4. 尽可能提供事件发生的章节号
+            5. 提供简洁但信息丰富的事件描述
+            
+            请按以下JSON格式返回（仅返回JSON，不要有其他说明）：
+            [
+                {{
+                    "name": "事件名称",
+                    "description": "事件描述",
+                    "importance": 数值(1-5，5最重要),
+                    "chapter_id": 事件发生的章节号(如果能确定),
+                    "time_description": "事件时间描述(如'三天后')"
+                }},
+                ...
+            ]
+            """
+            
+            # 调用OpenAI API
+            response = await OpenAIClient.chat_completion(
+                messages=[
+                    {"role": "system", "content": "你是一个专业的文学分析工具，专注于分析小说中的地点与事件关系。"},
+                    {"role": "user", "content": prompt + f"\n\n小说内容:\n{content[:10000]}"}  # 使用前10000个字符作为上下文
+                ],
+                temperature=0.7,
+                max_tokens=2000
+            )
+            
+            # 解析返回的内容
+            events_data = []
+            if response and "choices" in response:
+                content_text = response["choices"][0]["message"]["content"]
+                content_text = OpenAIClient.clean_json_content(content_text)
+                
+                try:
+                    # 解析JSON
+                    parsed_data = json.loads(content_text)
+                    if isinstance(parsed_data, list):
+                        events_data = parsed_data
+                    else:
+                        logger.error(f"地点 '{location.name}' 的事件数据不是列表格式")
+                        continue
+                except json.JSONDecodeError:
+                    logger.error(f"解析地点 '{location.name}' 的事件JSON数据失败")
+                    continue
+            
+            # 保存分析结果到数据库
+            for event_data in events_data:
+                # 检查事件是否已存在
+                event_name = event_data.get("name", "").strip()
+                if not event_name:
+                    continue
+                    
+                existing = db.query(novel.Event).filter(
+                    novel.Event.novel_id == novel_id,
+                    novel.Event.name == event_name,
+                    novel.Event.location_id == location.id
+                ).first()
+                
+                if existing:
+                    # 更新现有事件
+                    existing.description = event_data.get("description", existing.description)
+                    existing.importance = event_data.get("importance", existing.importance)
+                    existing.chapter_id = event_data.get("chapter_id", existing.chapter_id)
+                    existing.time_description = event_data.get("time_description", existing.time_description)
+                    events_updated += 1
+                else:
+                    # 创建新事件
+                    new_event = novel.Event(
+                        novel_id=novel_id,
+                        location_id=location.id,
+                        name=event_name,
+                        description=event_data.get("description", ""),
+                        importance=event_data.get("importance", 2),
+                        chapter_id=event_data.get("chapter_id"),
+                        time_description=event_data.get("time_description", "")
+                    )
+                    db.add(new_event)
+                    events_created += 1
+            
+            locations_processed += 1
+            logger.info(f"已处理地点 '{location.name}'，找到 {len(events_data)} 个相关事件")
+            
+            # 每处理5个地点提交一次事务，避免事务过大
+            if locations_processed % 5 == 0:
+                db.commit()
+        
+        # 最后提交事务
+        db.commit()
+        
+        return {
+            "status": "success", 
+            "message": "成功分析所有地点事件", 
+            "locations_count": locations_processed,
+            "events_created": events_created,
+            "events_updated": events_updated,
+            "total_events": events_created + events_updated
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"地点事件全局分析失败: {str(e)}")
         raise 

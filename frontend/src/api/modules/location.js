@@ -45,5 +45,16 @@ export default {
         end_chapter: endChapter
       }
     }).then(response => response.data)
+  },
+  
+  // 全局分析小说中所有地点的相关事件
+  analyzeAllLocationEvents(novelId, forceRefresh = false) {
+    return request({
+      url: `/location-analysis/novels/${novelId}/locations/events/analyze`,
+      method: 'post',
+      params: {
+        force_refresh: forceRefresh
+      }
+    }).then(response => response.data)
   }
 } 

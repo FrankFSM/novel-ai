@@ -3,8 +3,10 @@
     <el-card shadow="never">
       <template #header>
         <div class="page-header">
-          <h2>地点列表</h2>
-          <div class="header-actions">
+          <div class="header-left">
+            <h2>地点分析</h2>
+          </div>
+          <div class="header-right">
             <el-select 
               v-model="selectedNovel" 
               placeholder="请选择小说" 
@@ -27,7 +29,19 @@
               :loading="loading"
               class="analyze-button"
             >
+              <el-icon><Search /></el-icon>
               分析地点
+            </el-button>
+            
+            <el-button 
+              type="success" 
+              @click="analyzeAllEvents" 
+              :disabled="!selectedNovel || locations.length === 0"
+              :loading="eventAnalysisLoading" 
+              class="analyze-button"
+            >
+              <el-icon><DataAnalysis /></el-icon>
+              分析所有地点事件
             </el-button>
           </div>
         </div>
@@ -146,6 +160,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/store/novel'
 import { ElMessage } from 'element-plus'
 import { locationApi } from '@/api'
+import { Search, DataAnalysis } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -155,6 +170,7 @@ const novelStore = useNovelStore()
 const selectedNovel = ref(null)
 const locations = ref([])
 const loading = ref(false)
+const eventAnalysisLoading = ref(false)
 
 // 处理生命周期
 onMounted(async () => {
@@ -220,6 +236,23 @@ async function analyzeLocations() {
     await loadLocations(selectedNovel.value, true) // 强制刷新
   } catch (error) {
     ElMessage.error('分析地点失败')
+  }
+}
+
+// 分析所有地点事件
+async function analyzeAllEvents() {
+  if (!selectedNovel.value || locations.value.length === 0) return
+  
+  try {
+    eventAnalysisLoading.value = true
+    await locationApi.analyzeAllLocationEvents(selectedNovel.value)
+    await loadLocations(selectedNovel.value, true) // 强制刷新
+    ElMessage.success('成功分析所有地点事件')
+  } catch (error) {
+    console.error('分析所有地点事件失败:', error)
+    ElMessage.error('分析所有地点事件失败: ' + (error.message || '未知错误'))
+  } finally {
+    eventAnalysisLoading.value = false
   }
 }
 
