@@ -260,4 +260,110 @@ async def analyze_character_personality(db: Session, character_id: int) -> Dict[
         
     except Exception as e:
         logger.error(f"角色性格分析失败: {str(e)}")
+        raise
+
+async def analyze_characters_by_chapter(db: Session, novel_id: int, start_chapter_id: int, end_chapter_id: int) -> List[Dict[str, Any]]:
+    """根据章节范围分析小说角色
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        start_chapter_id: 起始章节ID
+        end_chapter_id: 结束章节ID
+        
+    Returns:
+        角色分析结果列表
+    """
+    logger.info(f"开始分析章节范围内角色: novel_id={novel_id}, start_chapter={start_chapter_id}, end_chapter={end_chapter_id}")
+    
+    # 验证小说存在
+    db_novel = novel_service.get_novel(db=db, novel_id=novel_id)
+    if not db_novel:
+        raise ValueError("小说不存在")
+    
+    # 验证章节范围
+    if start_chapter_id > end_chapter_id:
+        raise ValueError("起始章节ID不能大于结束章节ID")
+    
+    # 获取指定章节范围的内容
+    chapters_content = novel_service.get_chapters_content_by_range(db=db, novel_id=novel_id, 
+                                                                 start_chapter_id=start_chapter_id, 
+                                                                 end_chapter_id=end_chapter_id)
+    if not chapters_content:
+        raise ValueError("选定章节内容为空")
+    
+    # 使用AI分析角色
+    try:
+        logger.info("调用OpenAI API分析章节内角色...")
+        characters_data = await OpenAIClient.analyze_characters(chapters_content)
+        logger.info(f"成功获取章节角色分析结果，共{len(characters_data)}个角色")
+        
+        # 记录所有操作，用于调试和记录
+        created_count = 0
+        updated_count = 0
+        
+        # 保存分析结果到数据库
+        for character_data in characters_data:
+            # 检查角色是否已存在
+            existing = db.query(novel.Character).filter(
+                novel.Character.novel_id == novel_id,
+                novel.Character.name == character_data["name"]
+            ).first()
+            
+            if existing:
+                # 更新现有角色
+                logger.info(f"更新现有角色: {character_data['name']}")
+                
+                # 只有当新的重要性更高时才更新
+                if character_data.get("importance", 0) > (existing.importance or 0):
+                    existing.importance = character_data.get("importance", existing.importance)
+                
+                # 合并描述信息，避免覆盖现有有用信息
+                if character_data.get("description") and (not existing.description or len(character_data["description"]) > len(existing.description)):
+                    existing.description = character_data.get("description")
+                
+                # 合并别名
+                if character_data.get("alias"):
+                    existing_aliases = set(existing.alias or [])
+                    new_aliases = set(character_data.get("alias", []))
+                    merged_aliases = list(existing_aliases.union(new_aliases))
+                    existing.alias = merged_aliases
+                
+                updated_count += 1
+            else:
+                # 创建新角色
+                logger.info(f"创建新角色: {character_data['name']}")
+                new_character = novel.Character(
+                    novel_id=novel_id,
+                    name=character_data["name"],
+                    alias=character_data.get("alias", []),
+                    description=character_data.get("description", ""),
+                    importance=character_data.get("importance", 1)
+                )
+                db.add(new_character)
+                created_count += 1
+        
+        db.commit()
+        logger.info(f"章节角色分析处理完成: 创建了{created_count}个新角色，更新了{updated_count}个现有角色")
+        
+        # 返回更新后的角色列表
+        updated_characters = db.query(novel.Character).filter(
+            novel.Character.novel_id == novel_id
+        ).order_by(novel.Character.importance.desc()).all()
+        
+        return [
+            {
+                "id": character.id,
+                "name": character.name,
+                "alias": character.alias,
+                "description": character.description,
+                "first_appearance": character.first_appearance,
+                "importance": character.importance
+            }
+            for character in updated_characters
+        ]
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"章节角色分析失败: {str(e)}")
         raise 

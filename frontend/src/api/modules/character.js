@@ -32,5 +32,17 @@ export default {
       url: `/character-analysis/characters/${characterId}/personality`,
       method: 'get'
     }).then(response => response.data)
+  },
+  
+  // 按章节范围分析角色（新增）
+  analyzeCharactersByChapter(novelId, startChapter, endChapter) {
+    return request({
+      url: `/character-analysis/novels/${novelId}/characters/analyze-by-chapter`,
+      method: 'get',
+      params: { 
+        start_chapter: startChapter,
+        end_chapter: endChapter
+      }
+    }).then(response => response.data)
   }
 } 

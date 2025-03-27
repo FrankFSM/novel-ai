@@ -210,6 +210,56 @@ def get_novel_chapters_content(db: Session, novel_id: int, limit: Optional[int] 
     
     return "".join(content_parts)
 
+def get_chapters_content_by_range(db: Session, novel_id: int, start_chapter_id: int, end_chapter_id: int) -> str:
+    """获取指定章节范围的小说内容
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        start_chapter_id: 起始章节ID
+        end_chapter_id: 结束章节ID
+        
+    Returns:
+        合并后的章节内容
+    """
+    # 获取小说
+    db_novel = get_novel(db, novel_id)
+    if not db_novel:
+        return ""
+    
+    # 获取起始和结束章节的序号，用于后续查询
+    start_chapter = db.query(novel.Chapter).filter(
+        novel.Chapter.id == start_chapter_id,
+        novel.Chapter.novel_id == novel_id
+    ).first()
+    
+    end_chapter = db.query(novel.Chapter).filter(
+        novel.Chapter.id == end_chapter_id,
+        novel.Chapter.novel_id == novel_id
+    ).first()
+    
+    if not start_chapter or not end_chapter:
+        return ""
+    
+    # 查询章节范围
+    chapters = db.query(novel.Chapter).filter(
+        novel.Chapter.novel_id == novel_id,
+        novel.Chapter.number >= start_chapter.number,
+        novel.Chapter.number <= end_chapter.number
+    ).order_by(novel.Chapter.number).all()
+    
+    if not chapters:
+        return ""
+    
+    # 合并章节内容
+    content_parts = []
+    for chapter in chapters:
+        content_parts.append(f"第{chapter.number}章 {chapter.title}\n\n")
+        content_parts.append(chapter.content)
+        content_parts.append("\n\n")  # 章节之间添加空行分隔
+    
+    return "".join(content_parts)
+
 async def process_novel_content(db: Session, novel_id: int, content: str, title_override: Optional[str] = None) -> None:
     """处理小说内容
     

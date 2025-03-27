@@ -141,6 +141,62 @@
         </el-row>
       </div>
     </el-card>
+
+    <!-- 新增: 章节选择对话框 -->
+    <el-dialog
+      v-model="chapterDialogVisible"
+      title="选择章节进行分析"
+      width="500px"
+    >
+      <div class="chapter-selection-content">
+        <p class="dialog-description">选择要分析的章节范围：</p>
+        
+        <el-form label-position="top">
+          <el-form-item label="起始章节">
+            <el-select 
+              v-model="startChapter" 
+              placeholder="选择起始章节"
+              class="full-width-select"
+            >
+              <el-option
+                v-for="chapter in chapters"
+                :key="chapter.id"
+                :label="chapter.title || `第${chapter.chapter_number}章`"
+                :value="chapter.id"
+              />
+            </el-select>
+          </el-form-item>
+          
+          <el-form-item label="结束章节">
+            <el-select 
+              v-model="endChapter" 
+              placeholder="选择结束章节"
+              class="full-width-select"
+            >
+              <el-option
+                v-for="chapter in chapters"
+                :key="chapter.id"
+                :label="chapter.title || `第${chapter.chapter_number}章`"
+                :value="chapter.id"
+              />
+            </el-select>
+          </el-form-item>
+        </el-form>
+      </div>
+      
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="chapterDialogVisible = false">取消</el-button>
+          <el-button 
+            type="primary" 
+            @click="analyzeCharactersByChapter"
+            :loading="loading"
+          >
+            开始分析
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -150,6 +206,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/store/novel'
 import { ElMessage } from 'element-plus'
 import { characterApi } from '@/api'
+import { novelApi } from '@/api'
 
 const router = useRouter()
 const route = useRoute()
@@ -159,6 +216,12 @@ const novelStore = useNovelStore()
 const selectedNovel = ref(null)
 const characters = ref([])
 const loading = ref(false)
+
+// 新增: 章节选择对话框相关状态
+const chapterDialogVisible = ref(false)
+const chapters = ref([])
+const startChapter = ref(null)
+const endChapter = ref(null)
 
 // 处理生命周期
 onMounted(async () => {
@@ -183,16 +246,31 @@ async function loadCharacters(novelId, forceRefresh = false) {
     characters.value = []
     loading.value = true
     
-    // 调用API获取角色列表
-    const data = await characterApi.analyzeCharacters(novelId, forceRefresh)
-    console.log('角色分析API响应:', data)
+    // 调用API获取角色列表 - 根据forceRefresh参数决定是获取现有角色还是分析角色
+    let data
+    if (forceRefresh) {
+      // 强制刷新时分析角色
+      data = await characterApi.analyzeCharacters(novelId, forceRefresh)
+      console.log('角色分析API响应:', data)
+      ElMessage.success(`角色分析完成，共发现${data.length}个角色`)
+    } else {
+      // 非强制刷新时只获取现有角色
+      data = await characterApi.getNovelCharacters(novelId)
+      console.log('获取角色列表响应:', data)
+      // 处理不同的API响应格式
+      if (data && data.characters) {
+        data = data.characters
+      }
+    }
     
     if (data && Array.isArray(data)) {
       // 按重要性排序
       characters.value = [...data].sort((a, b) => 
         (b.importance || 0) - (a.importance || 0)
       )
-      ElMessage.success(`成功加载小说角色，共发现${data.length}个角色`)
+      if (!forceRefresh) {
+        ElMessage.success(`成功加载${data.length}个角色`)
+      }
     } else {
       ElMessage.warning('获取到的角色列表为空')
       characters.value = []
@@ -208,7 +286,7 @@ async function loadCharacters(novelId, forceRefresh = false) {
 
 // 小说选择变化处理
 async function handleNovelChange(novelId) {
-  await loadCharacters(novelId)
+  await loadCharacters(novelId, false)  // 不强制刷新，只获取现有角色
   
   // 更新URL参数
   router.replace({
@@ -221,9 +299,66 @@ async function analyzeCharacters() {
   if (!selectedNovel.value) return
   
   try {
-    await loadCharacters(selectedNovel.value, true) // 强制刷新
+    // 显示章节选择对话框
+    await loadNovelChapters(selectedNovel.value)
+    chapterDialogVisible.value = true
   } catch (error) {
-    ElMessage.error('分析角色失败')
+    ElMessage.error('无法加载章节列表: ' + (error.message || '未知错误'))
+  }
+}
+
+// 获取小说章节列表
+async function loadNovelChapters(novelId) {
+  try {
+    loading.value = true
+    const response = await novelApi.getNovelChapters(novelId)
+    chapters.value = response.data || []
+    if (chapters.value.length > 0) {
+      // 默认选择第一章和最后一章
+      startChapter.value = chapters.value[0].id
+      endChapter.value = chapters.value[chapters.value.length - 1].id
+    }
+  } catch (error) {
+    console.error('获取章节列表失败:', error)
+    throw error
+  } finally {
+    loading.value = false
+  }
+}
+
+// 根据章节范围分析角色
+async function analyzeCharactersByChapter() {
+  if (!selectedNovel.value || !startChapter.value || !endChapter.value) {
+    ElMessage.warning('请选择完整的章节范围')
+    return
+  }
+  
+  try {
+    loading.value = true
+    chapterDialogVisible.value = false
+    
+    // 使用新的API进行章节范围分析
+    const data = await characterApi.analyzeCharactersByChapter(
+      selectedNovel.value, 
+      startChapter.value, 
+      endChapter.value
+    )
+    
+    if (data && Array.isArray(data)) {
+      // 按重要性排序
+      characters.value = [...data].sort((a, b) => 
+        (b.importance || 0) - (a.importance || 0)
+      )
+      ElMessage.success(`章节角色分析完成，共发现${data.length}个角色`)
+    } else {
+      ElMessage.warning('获取到的角色列表为空')
+      characters.value = []
+    }
+  } catch (error) {
+    console.error('章节角色分析失败:', error)
+    ElMessage.error('章节角色分析失败: ' + (error.message || '未知错误'))
+  } finally {
+    loading.value = false
   }
 }
 
