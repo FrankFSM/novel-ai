@@ -109,6 +109,70 @@ async def upload_novel_file(
         logger.error(f"小说文件上传失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"小说文件上传失败: {str(e)}")
 
+@router.post("/{novel_id}/upload-content", response_model=schemas.UploadNovelResponse)
+async def upload_novel_content(
+    novel_id: int,
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """上传小说内容"""
+    try:
+        # 检查小说是否存在
+        db_novel = novel_service.get_novel(db=db, novel_id=novel_id)
+        if not db_novel:
+            raise HTTPException(status_code=404, detail="小说不存在")
+            
+        # 读取文件内容
+        content = await file.read()
+        text = content.decode('utf-8')
+        
+        # 处理文件内容
+        await novel_service.process_novel_content(db=db, novel_id=novel_id, content=text, title_override=title)
+        
+        return {
+            "novel_id": novel_id,
+            "message": "小说内容上传成功"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"小说内容上传失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"小说内容上传失败: {str(e)}")
+
+@router.post("/{novel_id}/chapters", response_model=schemas.ChapterResponse)
+async def create_chapter(
+    novel_id: int,
+    chapter_data: schemas.ChapterCreate,
+    db: Session = Depends(get_db)
+):
+    """创建小说章节"""
+    try:
+        # 检查小说是否存在
+        db_novel = novel_service.get_novel(db=db, novel_id=novel_id)
+        if not db_novel:
+            raise HTTPException(status_code=404, detail="小说不存在")
+            
+        # 创建章节
+        chapter = novel.Chapter(
+            novel_id=novel_id,
+            title=chapter_data.title,
+            content=chapter_data.content,
+            number=chapter_data.number,
+            word_count=len(chapter_data.content)
+        )
+        db.add(chapter)
+        db.commit()
+        db.refresh(chapter)
+        
+        return chapter
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"创建章节失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"创建章节失败: {str(e)}")
+
 @router.get("/{novel_id}/statistics", response_model=Dict[str, Any])
 async def get_novel_statistics(
     novel_id: int,
@@ -141,4 +205,54 @@ async def extract_novel_entities(
     
     return {
         "message": "实体提取任务已启动，将在后台处理"
-    } 
+    }
+
+@router.post("/{novel_id}/upload-chapter", response_model=schemas.ChapterResponse)
+async def upload_chapter(
+    novel_id: int,
+    file: UploadFile = File(...),
+    number: Optional[int] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """上传单个章节文件"""
+    try:
+        # 检查小说是否存在
+        db_novel = novel_service.get_novel(db=db, novel_id=novel_id)
+        if not db_novel:
+            raise HTTPException(status_code=404, detail="小说不存在")
+            
+        # 读取文件内容
+        content = await file.read()
+        text = content.decode('utf-8')
+        
+        # 获取文件名（不含扩展名）作为标题
+        filename = file.filename
+        title = filename.rsplit('.', 1)[0] if '.' in filename else filename
+        
+        # 如果没有提供章节号，使用当前最大章节号+1
+        if number is None:
+            # 获取当前最大章节号
+            chapters = db.query(novel.Chapter).filter(
+                novel.Chapter.novel_id == novel_id
+            ).all()
+            number = max([c.number for c in chapters], default=0) + 1
+        
+        # 创建章节
+        chapter = novel.Chapter(
+            novel_id=novel_id,
+            title=title,
+            content=text,
+            number=number,
+            word_count=len(text)
+        )
+        db.add(chapter)
+        db.commit()
+        db.refresh(chapter)
+        
+        return chapter
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"上传章节失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"上传章节失败: {str(e)}") 

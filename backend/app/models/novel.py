@@ -68,6 +68,9 @@ class Character(Base):
     description = Column(Text, nullable=True)
     first_appearance = Column(Integer, ForeignKey("chapters.id"), nullable=True)  # 首次出场章节
     importance = Column(Integer, default=1)  # 重要性评分（1-5）
+    image_url = Column(String(255), nullable=True)  # 角色图片URL
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # 关系
     novel = relationship("Novel", back_populates="characters")

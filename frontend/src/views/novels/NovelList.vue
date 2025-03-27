@@ -14,7 +14,7 @@
               @input="handleSearch"
               style="width: 300px; margin-right: 16px;"
             />
-            <el-button type="primary" @click="navigateToUpload">上传新小说</el-button>
+            <el-button type="primary" @click="navigateToUpload">创建小说</el-button>
           </div>
         </div>
       </template>

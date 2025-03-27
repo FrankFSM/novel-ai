@@ -16,12 +16,15 @@ def get_chapters_by_novel_id(db: Session, novel_id: int, skip: int = 0, limit: i
 
 def create_chapter(db: Session, obj_in: ChapterCreate) -> Chapter:
     """创建新章节"""
+    # 如果没有提供字数，计算内容长度作为字数
+    word_count = obj_in.word_count if obj_in.word_count is not None else len(obj_in.content)
+    
     db_obj = Chapter(
         novel_id=obj_in.novel_id,
         title=obj_in.title,
         content=obj_in.content,
         number=obj_in.number,
-        word_count=obj_in.word_count
+        word_count=word_count
     )
     db.add(db_obj)
     db.commit()

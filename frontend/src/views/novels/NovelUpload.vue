@@ -3,13 +3,12 @@
     <el-card shadow="never">
       <template #header>
         <div class="upload-header">
-          <h2>上传小说</h2>
+          <h2>创建小说</h2>
         </div>
       </template>
       
       <el-steps :active="activeStep" finish-status="success" align-center>
         <el-step title="基本信息" />
-        <el-step title="上传文件" />
         <el-step title="处理完成" />
       </el-steps>
       
@@ -57,64 +56,32 @@
             </el-form-item>
             
             <el-form-item>
-              <el-button type="primary" @click="nextStep">下一步</el-button>
+              <el-button type="primary" @click="createNovel" :loading="creating">
+                {{ creating ? '创建中...' : '创建小说' }}
+              </el-button>
             </el-form-item>
           </el-form>
         </div>
         
-        <!-- 步骤2：上传文件 -->
-        <div v-else-if="activeStep === 1" class="upload-file-container">
-          <el-upload
-            class="file-uploader"
-            drag
-            action="#"
-            :auto-upload="false"
-            :on-change="handleFileChange"
-            :limit="1"
-          >
-            <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-            <div class="el-upload__text">
-              拖拽文件到此处，或 <em>点击选择文件</em>
-            </div>
-            <template #tip>
-              <div class="el-upload__tip">
-                支持TXT文件格式，建议使用UTF-8编码。文件大小不超过10MB。
-              </div>
-            </template>
-          </el-upload>
-          
-          <div v-if="selectedFile" class="file-info">
-            <p><strong>文件名：</strong>{{ selectedFile.name }}</p>
-            <p><strong>大小：</strong>{{ formatFileSize(selectedFile.size) }}</p>
-          </div>
-          
-          <div class="step-actions">
-            <el-button @click="prevStep">上一步</el-button>
-            <el-button type="primary" :loading="uploading" @click="uploadNovel">
-              {{ uploading ? '上传中...' : '开始上传' }}
-            </el-button>
-          </div>
-        </div>
-        
-        <!-- 步骤3：处理完成 -->
+        <!-- 步骤2：处理完成 -->
         <div v-else class="result-container">
           <el-result 
-            v-if="uploadSuccess" 
+            v-if="createSuccess" 
             icon="success" 
-            title="上传成功" 
-            sub-title="小说文件已上传，系统正在后台处理中..."
+            title="创建成功" 
+            sub-title="小说基本信息已创建，您可以前往详情页上传内容"
           >
             <template #extra>
               <el-button type="primary" @click="viewNovelDetail">查看小说详情</el-button>
-              <el-button @click="uploadAnother">再次上传</el-button>
+              <el-button @click="createAnother">继续创建</el-button>
             </template>
           </el-result>
           
           <el-result 
             v-else 
             icon="error" 
-            title="上传失败" 
-            :sub-title="errorMessage || '小说上传过程中发生错误'"
+            title="创建失败" 
+            :sub-title="errorMessage || '小说创建过程中发生错误'"
           >
             <template #extra>
               <el-button @click="prevStep">返回重试</el-button>
@@ -131,7 +98,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, UploadFilled } from '@element-plus/icons-vue'
+import { Plus } from '@element-plus/icons-vue'
 import { useNovelStore } from '@/store/novel'
 
 const router = useRouter()
@@ -161,11 +128,7 @@ const formRules = {
 // 步骤控制
 const activeStep = ref(0)
 const nextStep = () => {
-  formRef.value.validate((valid) => {
-    if (valid) {
-      activeStep.value++
-    }
-  })
+  activeStep.value++
 }
 const prevStep = () => {
   activeStep.value--
@@ -182,59 +145,48 @@ const handleCoverChange = (file) => {
   reader.readAsDataURL(file.raw)
 }
 
-// 文件处理
-const selectedFile = ref(null)
-const handleFileChange = (file) => {
-  selectedFile.value = file.raw
-}
-
-// 上传状态
-const uploading = ref(false)
-const uploadSuccess = ref(false)
+// 创建状态
+const creating = ref(false)
+const createSuccess = ref(false)
 const createdNovelId = ref(null)
 const errorMessage = ref('')
 
-// 上传小说
-const uploadNovel = async () => {
-  if (!selectedFile.value) {
-    ElMessage.warning('请选择要上传的小说文件')
-    return
-  }
-  
-  uploading.value = true
-  errorMessage.value = ''
-  
-  try {
-    // 准备表单数据
-    const formData = new FormData()
-    formData.append('title', novelForm.value.title)
-    formData.append('author', novelForm.value.author)
+// 创建小说
+const createNovel = async () => {
+  formRef.value.validate(async (valid) => {
+    if (!valid) return
     
-    if (novelForm.value.description) {
-      formData.append('description', novelForm.value.description)
+    creating.value = true
+    errorMessage.value = ''
+    
+    try {
+      // 创建小说基本信息
+      const novelData = {
+        title: novelForm.value.title,
+        author: novelForm.value.author,
+        description: novelForm.value.description
+      }
+      
+      // 调用API创建
+      const response = await novelStore.createNovel(novelData)
+      createdNovelId.value = response.id
+      
+      // 创建成功
+      createSuccess.value = true
+      
+      // 刷新小说列表
+      await novelStore.fetchNovels()
+      
+      // 前进到结果页
+      nextStep()
+    } catch (error) {
+      createSuccess.value = false
+      errorMessage.value = error.message || '创建失败，请稍后重试'
+      ElMessage.error(errorMessage.value)
+    } finally {
+      creating.value = false
     }
-    
-    formData.append('file', selectedFile.value)
-    
-    // 调用API上传
-    const response = await novelStore.uploadNovelFile(formData)
-    
-    // 上传成功
-    uploadSuccess.value = true
-    createdNovelId.value = response.novel_id
-    
-    // 刷新小说列表
-    await novelStore.fetchNovels()
-    
-    // 前进到结果页
-    activeStep.value++
-  } catch (error) {
-    uploadSuccess.value = false
-    errorMessage.value = error.message || '上传失败，请稍后重试'
-    ElMessage.error(errorMessage.value)
-  } finally {
-    uploading.value = false
-  }
+  })
 }
 
 // 结果页操作
@@ -244,30 +196,17 @@ const viewNovelDetail = () => {
   }
 }
 
-const uploadAnother = () => {
+const createAnother = () => {
   // 重置表单和状态
   formRef.value.resetFields()
   coverUrl.value = ''
-  selectedFile.value = null
-  uploadSuccess.value = false
+  createSuccess.value = false
   createdNovelId.value = null
-  errorMessage.value = ''
   activeStep.value = 0
 }
 
 const navigateToList = () => {
   router.push('/novels/list')
-}
-
-// 工具函数
-const formatFileSize = (size) => {
-  if (size < 1024) {
-    return size + ' B'
-  } else if (size < 1024 * 1024) {
-    return (size / 1024).toFixed(2) + ' KB'
-  } else {
-    return (size / (1024 * 1024)).toFixed(2) + ' MB'
-  }
 }
 </script>
 
@@ -275,6 +214,7 @@ const formatFileSize = (size) => {
 .upload-container {
   max-width: 800px;
   margin: 0 auto;
+  padding: 20px 0;
 }
 
 .upload-header {
@@ -289,7 +229,6 @@ const formatFileSize = (size) => {
 
 .step-content {
   margin-top: 30px;
-  min-height: 300px;
 }
 
 .form-container {
@@ -299,7 +238,7 @@ const formatFileSize = (size) => {
 
 .cover-uploader {
   width: 200px;
-  height: 270px;
+  height: 280px;
   border: 1px dashed #d9d9d9;
   border-radius: 6px;
   cursor: pointer;
@@ -308,7 +247,6 @@ const formatFileSize = (size) => {
   display: flex;
   justify-content: center;
   align-items: center;
-  background-color: #fbfdff;
 }
 
 .cover-uploader:hover {
@@ -318,51 +256,29 @@ const formatFileSize = (size) => {
 .cover-uploader-icon {
   font-size: 28px;
   color: #8c939d;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
 }
 
 .cover-image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .upload-tip {
   font-size: 12px;
   color: #606266;
-  margin-top: 5px;
-}
-
-.upload-file-container {
-  max-width: 600px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.file-uploader {
-  width: 100%;
-}
-
-.file-info {
-  margin-top: 20px;
-  padding: 10px;
-  width: 100%;
-  border: 1px solid #ebeef5;
-  border-radius: 4px;
-  background-color: #f5f7fa;
+  margin-top: 7px;
 }
 
 .step-actions {
-  margin-top: 30px;
   display: flex;
-  justify-content: center;
-  gap: 20px;
+  justify-content: space-between;
+  margin-top: 20px;
 }
 
 .result-container {
-  margin-top: 20px;
+  padding: 20px 0;
 }
 </style> 

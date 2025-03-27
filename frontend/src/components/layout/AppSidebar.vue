@@ -24,7 +24,6 @@
           <span>小说管理</span>
         </template>
         <el-menu-item index="/novels/list">小说列表</el-menu-item>
-        <el-menu-item index="/novels/upload">上传小说</el-menu-item>
       </el-sub-menu>
       
       <el-sub-menu index="/analysis">

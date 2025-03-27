@@ -9,9 +9,13 @@ class ChapterBase(BaseModel):
     number: int
     word_count: Optional[int] = None
 
-class ChapterCreate(ChapterBase):
+class ChapterCreate(BaseModel):
     """创建章节模型"""
-    novel_id: int
+    title: str
+    content: str
+    number: int
+    novel_id: Optional[int] = None
+    word_count: Optional[int] = None
 
 class ChapterUpdate(BaseModel):
     """更新章节模型"""

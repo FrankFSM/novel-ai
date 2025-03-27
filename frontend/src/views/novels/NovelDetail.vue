@@ -155,8 +155,20 @@
           <!-- 章节列表 -->
           <el-tab-pane label="章节列表" name="chapters">
             <div class="chapters-container">
+              <div class="chapters-header">
+                <h3>章节列表</h3>
+                <div class="upload-actions">
+                  <el-button type="primary" @click="openUploadFullNovelDialog">
+                    <el-icon><upload-filled /></el-icon>上传整部小说
+                  </el-button>
+                  <el-button type="primary" @click="openUploadChapterDialog">
+                    <el-icon><upload-filled /></el-icon>上传单章节
+                  </el-button>
+                </div>
+              </div>
+              
               <el-empty v-if="!chapters.length" description="暂无章节信息">
-                <el-button type="primary" @click="extractEntities" :loading="extracting">提取实体</el-button>
+                <el-button type="primary" @click="openUploadFullNovelDialog">上传小说文件</el-button>
               </el-empty>
               
               <el-table v-else :data="chapters" style="width: 100%" max-height="500">
@@ -232,6 +244,114 @@
       </div>
     </el-dialog>
     
+    <!-- 上传章节对话框 -->
+    <el-dialog
+      v-model="uploadChapterDialogVisible"
+      title="上传章节"
+      width="50%"
+    >
+      <el-tabs v-model="uploadChapterTab">
+        <el-tab-pane label="选择文件上传" name="file">
+          <div class="upload-file-container">
+            <el-upload
+              class="file-uploader"
+              drag
+              action="#"
+              :auto-upload="false"
+              :on-change="handleChapterFileChange"
+              :limit="1"
+            >
+              <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+              <div class="el-upload__text">
+                拖拽文件到此处，或 <em>点击选择文件</em>
+              </div>
+              <template #tip>
+                <div class="el-upload__tip">
+                  支持TXT文件格式，建议使用UTF-8编码。文件大小不超过5MB。
+                </div>
+              </template>
+            </el-upload>
+            
+            <div v-if="chapterFile" class="file-info">
+              <p><strong>文件名：</strong>{{ chapterFile.name }}</p>
+              <p><strong>大小：</strong>{{ formatFileSize(chapterFile.size) }}</p>
+              <p v-if="chapterFileContent"><strong>字数：</strong>{{ chapterFileContent.length.toLocaleString() }} 字</p>
+            </div>
+          </div>
+        </el-tab-pane>
+        <el-tab-pane label="手动输入内容" name="manual">
+          <el-form :model="chapterForm" label-width="80px">
+            <el-form-item label="章节序号" required>
+              <el-input-number v-model="chapterForm.number" :min="1" :step="1" />
+            </el-form-item>
+            <el-form-item label="章节标题" required>
+              <el-input v-model="chapterForm.title" placeholder="请输入章节标题"/>
+            </el-form-item>
+            <el-form-item label="章节内容" required>
+              <el-input 
+                v-model="chapterForm.content" 
+                type="textarea" 
+                :rows="12" 
+                placeholder="请输入章节内容" 
+              />
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+      </el-tabs>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="uploadChapterDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="uploadChapter" :loading="uploading">上传</el-button>
+        </span>
+      </template>
+    </el-dialog>
+    
+    <!-- 上传整部小说对话框 -->
+    <el-dialog
+      v-model="uploadFullNovelDialogVisible"
+      title="上传整部小说"
+      width="50%"
+    >
+      <div class="upload-novel-container">
+        <el-upload
+          class="file-uploader"
+          drag
+          action="#"
+          :auto-upload="false"
+          :on-change="handleFileChange"
+          :limit="1"
+        >
+          <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+          <div class="el-upload__text">
+            拖拽文件到此处，或 <em>点击选择文件</em>
+          </div>
+          <template #tip>
+            <div class="el-upload__tip">
+              支持TXT文件格式，建议使用UTF-8编码。文件大小不超过10MB。
+            </div>
+          </template>
+        </el-upload>
+        
+        <div v-if="selectedFile" class="file-info">
+          <p><strong>文件名：</strong>{{ selectedFile.name }}</p>
+          <p><strong>大小：</strong>{{ formatFileSize(selectedFile.size) }}</p>
+          <p v-if="fileContent"><strong>字数：</strong>{{ fileContent.length.toLocaleString() }} 字</p>
+          
+          <el-form class="file-form" :model="fileForm" label-width="80px" style="margin-top: 20px;">
+            <el-form-item label="标题">
+              <el-input v-model="fileForm.title" placeholder="请输入标题" />
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="uploadFullNovelDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="uploadFullNovel" :loading="uploading" :disabled="!selectedFile">上传</el-button>
+        </span>
+      </template>
+    </el-dialog>
+    
     <!-- 删除确认对话框 -->
     <el-dialog
       v-model="deleteDialogVisible"
@@ -258,7 +378,8 @@ import {
   UserFilled, 
   Calendar, 
   Document, 
-  Avatar 
+  Avatar,
+  UploadFilled
 } from '@element-plus/icons-vue'
 import { novelApi } from '@/api'
 
@@ -282,6 +403,24 @@ const selectedChapter = ref(null)
 
 // 删除确认状态
 const deleteDialogVisible = ref(false)
+
+// 上传章节相关
+const uploadChapterDialogVisible = ref(false)
+const uploadFullNovelDialogVisible = ref(false)
+const uploading = ref(false)
+const uploadChapterTab = ref('file')
+const chapterForm = ref({
+  number: 1,
+  title: '',
+  content: ''
+})
+const selectedFile = ref(null)
+const fileContent = ref(null)
+const fileForm = ref({
+  title: ''
+})
+const chapterFile = ref(null)
+const chapterFileContent = ref(null)
 
 // 小说ID和详情
 const novelId = computed(() => Number(route.params.id))
@@ -315,13 +454,34 @@ async function loadNovelData() {
   // 加载统计数据
   await loadStatistics()
   
-  // 加载章节列表（模拟数据）
-  // TODO: 实际项目中应从 API 获取
-  chapters.value = generateMockChapters()
+  // 加载章节列表
+  await fetchChapters()
   
-  // 加载角色列表（模拟数据）
-  // TODO: 实际项目中应从 API 获取 
-  characters.value = generateMockCharacters()
+  // 加载角色列表
+  await fetchCharacters()
+}
+
+// 加载章节列表
+async function fetchChapters() {
+  try {
+    const response = await novelApi.getNovelChapters(novelId.value)
+    chapters.value = response.data
+  } catch (error) {
+    console.error('获取章节列表失败', error)
+    ElMessage.error('获取章节列表失败')
+    chapters.value = []
+  }
+}
+
+// 加载角色列表
+async function fetchCharacters() {
+  try {
+    const response = await novelApi.getNovelCharacters(novelId.value)
+    characters.value = response.data
+  } catch (error) {
+    console.error('获取角色列表失败', error)
+    characters.value = []
+  }
 }
 
 // 加载统计数据
@@ -472,73 +632,169 @@ function formatChapterContent(content) {
   return content.split('\n').filter(paragraph => paragraph.trim() !== '')
 }
 
-// 生成模拟章节数据
-function generateMockChapters() {
-  const count = novel.value?.chapters_count || 10
-  const chapters = []
+// 上传章节相关
+const openUploadChapterDialog = () => {
+  // 重置手动输入表单
+  chapterForm.value.number = chapters.value.length > 0 
+    ? Math.max(...chapters.value.map(c => c.number)) + 1 
+    : 1
+  chapterForm.value.title = `第${chapterForm.value.number}章`
+  chapterForm.value.content = ''
   
-  for (let i = 1; i <= count; i++) {
-    chapters.push({
-      id: i,
-      number: i,
-      title: `第${i}章 ${i % 3 === 0 ? '惊天大战' : i % 3 === 1 ? '神秘来客' : '隐藏真相'}`,
-      word_count: Math.floor(3000 + Math.random() * 4000),
-      content: `这是第${i}章的内容。\n\n这是一个段落。\n\n这是另一个段落，包含了这一章的主要内容和情节发展。`
-    })
-  }
+  // 重置文件上传相关状态
+  chapterFile.value = null
+  chapterFileContent.value = null
   
-  return chapters
+  // 默认展示文件上传标签页
+  uploadChapterTab.value = 'file'
+  
+  uploadChapterDialogVisible.value = true
 }
 
-// 生成模拟角色数据
-function generateMockCharacters() {
-  const count = novel.value?.characters_count || 5
-  const characters = []
-  
-  const names = ['林远', '沈清雪', '张天志', '李墨', '王霜', '赵云', '钱多多', '孙小圣']
-  const descriptions = [
-    '主角，拥有神秘血脉',
-    '女主角，冰系法术天才',
-    '男主角的挚友，武道奇才',
-    '隐世宗门弟子',
-    '神秘组织成员',
-    '资深猎人，身手不凡',
-    '富商之女，精通商业',
-    '顽皮捣蛋，身份成谜'
-  ]
-  
-  for (let i = 0; i < count; i++) {
-    const nameIndex = i % names.length
-    characters.push({
-      id: i + 1,
-      name: names[nameIndex],
-      alias: generateAliases(names[nameIndex]),
-      description: descriptions[nameIndex]
-    })
-  }
-  
-  return characters
+const openUploadFullNovelDialog = () => {
+  selectedFile.value = null
+  fileContent.value = null
+  uploadFullNovelDialogVisible.value = true
 }
 
-// 生成模拟别名
-function generateAliases(name) {
-  const count = Math.floor(Math.random() * 3)
-  const aliases = []
+const handleFileChange = (file) => {
+  selectedFile.value = file.raw
+  fileContent.value = null
   
-  const prefixes = ['小', '老', '大']
-  const suffixes = ['哥', '姐', '兄', '弟']
+  // 提取文件名作为标题（去除扩展名）
+  const fileName = file.raw.name
+  const titleWithoutExt = fileName.replace(/\.[^/.]+$/, "")
+  fileForm.value.title = titleWithoutExt
   
-  for (let i = 0; i < count; i++) {
-    if (i === 0 && name.length <= 2) {
-      aliases.push(name.charAt(name.length - 1))
-    } else {
-      const prefix = prefixes[Math.floor(Math.random() * prefixes.length)]
-      const suffix = suffixes[Math.floor(Math.random() * suffixes.length)]
-      aliases.push(i % 2 === 0 ? prefix + name.charAt(name.length - 1) : name.charAt(name.length - 1) + suffix)
+  // 读取文件内容以获取字数
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const content = e.target.result
+    fileContent.value = content
+  }
+  reader.readAsText(file.raw)
+}
+
+const handleChapterFileChange = (file) => {
+  chapterFile.value = file.raw
+  chapterFileContent.value = null
+  
+  // 读取文件内容以获取字数
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const content = e.target.result
+    chapterFileContent.value = content
+  }
+  reader.readAsText(file.raw)
+}
+
+const uploadChapter = async () => {
+  if (uploadChapterTab.value === 'file') {
+    // 文件上传方式
+    if (!chapterFile.value || !chapterFileContent.value) {
+      ElMessage.warning('请选择要上传的章节文件')
+      return
+    }
+
+    uploading.value = true
+    
+    try {
+      // 准备表单数据
+      const formData = new FormData()
+      formData.append('file', chapterFile.value)
+      
+      // 自动生成章节序号 
+      const chapterNumber = chapters.value.length > 0 
+        ? Math.max(...chapters.value.map(c => c.number)) + 1 
+        : 1
+      formData.append('number', chapterNumber.toString())
+      
+      // 调用API上传单个章节内容
+      await novelApi.uploadChapterFile(novel.value.id, formData)
+      
+      // 刷新章节列表
+      await fetchChapters()
+      
+      // 刷新小说详情，更新章节计数
+      await novelStore.fetchNovelDetail(novelId.value)
+      
+      ElMessage.success('章节上传成功')
+      uploadChapterDialogVisible.value = false
+    } catch (error) {
+      ElMessage.error(error.message || '章节上传失败')
+    } finally {
+      uploading.value = false
+    }
+  } else {
+    // 手动输入方式
+    if (!chapterForm.value.title.trim() || !chapterForm.value.content.trim()) {
+      ElMessage.warning('请填写章节标题和内容')
+      return
+    }
+    
+    uploading.value = true
+    
+    try {
+      // 调用API创建章节
+      await novelApi.createChapter(novel.value.id, {
+        title: chapterForm.value.title,
+        content: chapterForm.value.content,
+        number: chapterForm.value.number
+      })
+      
+      // 刷新章节列表
+      await fetchChapters()
+      
+      // 刷新小说详情，更新章节计数
+      await novelStore.fetchNovelDetail(novelId.value)
+      
+      ElMessage.success('章节上传成功')
+      uploadChapterDialogVisible.value = false
+    } catch (error) {
+      ElMessage.error(error.message || '章节上传失败')
+    } finally {
+      uploading.value = false
     }
   }
+}
+
+const uploadFullNovel = async () => {
+  if (!selectedFile.value) {
+    ElMessage.warning('请选择要上传的小说文件')
+    return
+  }
   
-  return aliases
+  uploading.value = true
+  
+  try {
+    // 准备表单数据
+    const formData = new FormData()
+    formData.append('file', selectedFile.value)
+    formData.append('title', fileForm.value.title)
+    
+    // 调用API上传
+    await novelApi.uploadNovelContent(novel.value.id, formData)
+    
+    // 刷新章节列表
+    await fetchChapters()
+    
+    // 刷新小说详情，更新章节计数
+    await novelStore.fetchNovelDetail(novelId.value)
+    
+    ElMessage.success('小说内容上传成功')
+    uploadFullNovelDialogVisible.value = false
+  } catch (error) {
+    ElMessage.error(error.message || '小说上传失败')
+  } finally {
+    uploading.value = false
+  }
+}
+
+// 格式化工具
+const formatFileSize = (bytes) => {
+  if (bytes < 1024) return bytes + ' B'
+  else if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KB'
+  else return (bytes / 1048576).toFixed(2) + ' MB'
 }
 </script>
 
@@ -700,5 +956,40 @@ function generateAliases(name) {
 .chapter-text {
   line-height: 1.8;
   text-indent: 2em;
+}
+
+.chapters-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.upload-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.upload-novel-container {
+  padding: 20px;
+}
+
+.file-uploader {
+  width: 100%;
+}
+
+.file-info {
+  margin-top: 20px;
+  padding: 10px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+}
+
+.file-form {
+  margin-top: 20px;
+}
+
+.upload-file-container {
+  padding: 20px;
 }
 </style> 

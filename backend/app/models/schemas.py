@@ -33,12 +33,13 @@ class ChapterBase(BaseSchema):
     number: int
 
 class ChapterCreate(ChapterBase):
-    novel_id: int
+    pass
 
 class ChapterResponse(ChapterBase):
     id: int
+    novel_id: int
     word_count: Optional[int] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
 # 角色相关模型

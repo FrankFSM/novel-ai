@@ -210,13 +210,14 @@ def get_novel_chapters_content(db: Session, novel_id: int, limit: Optional[int] 
     
     return "".join(content_parts)
 
-async def process_novel_content(db: Session, novel_id: int, content: str) -> None:
+async def process_novel_content(db: Session, novel_id: int, content: str, title_override: Optional[str] = None) -> None:
     """处理小说内容
     
     Args:
         db: 数据库会话
         novel_id: 小说ID
         content: 小说内容
+        title_override: 覆盖自动检测的标题（可选）
     """
     try:
         # 使用正则表达式找到所有章节标题和内容
@@ -225,13 +226,22 @@ async def process_novel_content(db: Session, novel_id: int, content: str) -> Non
         
         if not chapters:
             # 如果没有找到章节标记，将整个内容作为一个章节
-            chapters = [("第1章", content.strip())]
+            if title_override:
+                # 使用传入的标题
+                chapter_title = title_override
+            else:
+                # 默认标题
+                chapter_title = "第1章"
+            chapters = [(chapter_title, content.strip())]
         
         # 保存章节
         for i, (title, chapter_content) in enumerate(chapters, 1):
+            # 如果只有一个章节且有自定义标题，则使用自定义标题
+            actual_title = title_override if (len(chapters) == 1 and title_override) else title.strip()
+            
             chapter = novel.Chapter(
                 novel_id=novel_id,
-                title=title.strip(),
+                title=actual_title,
                 content=chapter_content.strip(),
                 number=i,
                 word_count=len(chapter_content.strip())
