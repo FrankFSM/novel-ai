@@ -304,4 +304,25 @@ async def process_novel_content(db: Session, novel_id: int, content: str, title_
     except Exception as e:
         logger.error(f"处理小说内容失败: {str(e)}")
         db.rollback()
-        raise 
+        raise
+
+def get_chapter_content(db: Session, chapter_id: int) -> str:
+    """获取单个章节的内容
+    
+    Args:
+        db: 数据库会话
+        chapter_id: 章节ID
+        
+    Returns:
+        章节内容
+    """
+    chapter = db.query(novel.Chapter).filter(
+        novel.Chapter.id == chapter_id
+    ).first()
+    
+    if not chapter:
+        return ""
+    
+    # 格式化章节内容，确保包含章节标题
+    content = f"第{chapter.number}章 {chapter.title}\n\n{chapter.content}"
+    return content 

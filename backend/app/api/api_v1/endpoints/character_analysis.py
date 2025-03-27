@@ -4,7 +4,7 @@ from typing import List
 
 from app.core.database import get_db
 from app.schemas.character_analysis import CharacterAnalysisResponse, CharacterPersonality, CharacterDetail, NovelCharactersResponse
-from app.services.character_analysis_service import analyze_novel_characters, get_character_details, analyze_character_personality, analyze_characters_by_chapter
+from app.services.character_analysis_service import analyze_novel_characters, get_character_details, analyze_character_personality, analyze_characters_by_chapter, get_novel_characters_without_analysis
 
 router = APIRouter()
 
@@ -19,6 +19,9 @@ async def analyze_characters(
     
     - **novel_id**: 小说ID
     - **force_refresh**: 是否强制刷新分析结果
+    
+    返回：
+    - 角色列表，包含每个角色出现的章节信息
     """
     try:
         result = await analyze_novel_characters(db, novel_id, force_refresh)
@@ -41,6 +44,9 @@ async def analyze_characters_by_chapter_range(
     - **novel_id**: 小说ID
     - **start_chapter**: 起始章节ID
     - **end_chapter**: 结束章节ID
+    
+    返回：
+    - 角色列表，包含每个角色出现的章节信息
     """
     try:
         result = await analyze_characters_by_chapter(db, novel_id, start_chapter, end_chapter)
@@ -56,12 +62,15 @@ async def get_novel_characters(
     db: Session = Depends(get_db)
 ):
     """
-    获取小说中的所有角色
+    获取小说中的所有角色，不会自动触发分析
     
     - **novel_id**: 小说ID
+    
+    返回：
+    - 小说ID和角色列表，如果没有角色则返回空列表
     """
     try:
-        characters = await analyze_novel_characters(db, novel_id, force_refresh=False)
+        characters = get_novel_characters_without_analysis(db, novel_id)
         return {
             "novel_id": novel_id,
             "characters": characters

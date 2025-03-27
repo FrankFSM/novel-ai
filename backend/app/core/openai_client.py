@@ -552,90 +552,122 @@ class OpenAIClient:
         return results 
 
     @staticmethod
-    async def analyze_characters(text: str) -> List[Dict[str, Any]]:
-        """从文本中分析所有人物角色
+    async def analyze_characters(content: str, is_chapter_specific: bool = False) -> List[Dict[str, Any]]:
+        """分析文本中的人物角色
         
         Args:
-            text: 小说文本内容
+            content: 文本内容
+            is_chapter_specific: 是否为单章节特定分析
             
         Returns:
-            角色列表，包含名称、描述、别名等信息
+            角色信息列表
         """
         try:
-            logger.info("开始分析小说角色...")
+            # 构建系统提示
+            system_prompt = """你是一个优秀的文学分析专家，擅长分析小说中的人物角色。
+请仔细分析以下文本，提取出所有出现的角色，并提供以下信息：
+1. 角色名称
+2. 角色别名（如有）
+3. 角色描述（性格、外貌、背景等）
+4. 角色重要性（1-5，5为最重要）
 
-            system_prompt = """你是一个专业的小说分析助手。全面提取输入文本中所有角色并以JSON格式输出：
-[
-    {
-        "name": "角色名称",
-        "alias": ["别名1", "别名2"],
-        "description": "角色详细描述",
-        "importance": 1-5的重要性评分
-    }
-]
-
-分析要求：
-1. 分析所有角色，包括背景角色（如"姓阮的外乡铁匠"）和间接提及的角色
-2. 对无明确姓名角色，使用标准化描述作为名称：
-   - 统一命名格式，例如"卖鱼的中年人"和"卖鱼中年人"应合并为一个角色
-   - 将相似描述的同一角色视为一个实体
-   - 职业+特征+性别/年龄作为标准格式，如"卖鱼的中年人"
-3. 重要性评分标准：
-   - 5分：主角
-   - 4分：重要配角
-   - 3分：次要多次出场角色
-   - 2分：偶尔出场角色
-   - 1分：仅出现一次的背景角色
-4. 详细描述角色身份、背景、性格特点和故事作用
-5. 记录所有别名和称呼方式，不同表述的背景角色应使用别名字段记录变体
-6. 按重要性排序
-7. 返回纯JSON，不含额外解释
 """
+            if is_chapter_specific:
+                system_prompt += """注意，这是小说的单个章节，请只分析该章节中出现的角色及其在本章中的表现。
+不要猜测或推断角色在其他章节中的信息。"""
             
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": text}
-            ]
+            # 构建用户提示
+            user_prompt = f"""请分析以下文本中的角色，并以JSON格式返回结果。每个角色包括name(角色名)、alias(别名数组)、description(描述)、importance(重要性1-5)等字段。
+            
+文本内容:
+{content}
+
+请以JSON数组格式返回，例如：
+[
+  {{
+    "name": "角色A",
+    "alias": ["别名1", "别名2"],
+    "description": "角色A的描述...",
+    "importance": 5
+  }},
+  {{
+    "name": "角色B",
+    "alias": [],
+    "description": "角色B的描述...",
+    "importance": 3
+  }}
+]"""
+
+            # 如果配置为使用模拟数据，返回模拟数据
+            if settings.USE_MOCK_DATA:
+                logger.info("使用模拟数据进行角色分析")
+                return OpenAIClient.generate_mock_characters_data()
 
             # 初始化客户端
+            logger.info(f"初始化OpenAI客户端，使用API基础URL: {settings.OPENAI_API_BASE}")
             client = OpenAI(
                 api_key=settings.OPENAI_API_KEY,
                 base_url=settings.OPENAI_API_BASE
             )
             
-            # 调用API
+            # 调用OpenAI API
+            logger.info(f"调用OpenAI API进行角色分析，使用模型: {settings.OPENAI_API_MODEL}")
             response = client.chat.completions.create(
                 model=settings.OPENAI_API_MODEL,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=4000
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.2,
+                response_format={"type": "json_object"}
             )
             
-            # 获取响应内容
-            content = response.choices[0].message.content
-            logger.info("\n===角色分析原始响应===\n%s", content)
+            result_text = response.choices[0].message.content
+            logger.info(f"OpenAI API返回结果: {result_text[:200]}...")
             
-            # 提取JSON内容
-            json_match = re.search(r'\[\s*\{.*\}\s*\]', content, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-            else:
-                json_str = content
-            
+            # 尝试清理和解析JSON响应
             try:
-                result = json.loads(json_str)
-                logger.info(f"成功解析角色分析结果，找到{len(result)}个角色")
-                return result
-            except json.JSONDecodeError as je:
-                logger.error(f"JSON解析错误: {str(je)}")
-                # 尝试清理内容
-                cleaned_content = OpenAIClient.clean_json_content(content)
-                return json.loads(cleaned_content)
+                # 清理可能的前缀和后缀
+                json_pattern = r'(\{|\[).*(\}|\])'
+                json_matches = re.search(json_pattern, result_text, re.DOTALL)
+                if json_matches:
+                    cleaned_text = json_matches.group(0)
+                    logger.info(f"提取到JSON内容: {cleaned_text[:100]}...")
+                else:
+                    cleaned_text = result_text
                 
+                # 尝试解析JSON
+                result_json = json.loads(cleaned_text)
+            except json.JSONDecodeError as je:
+                logger.error(f"无法解析JSON响应: {str(je)}")
+                logger.error(f"原始响应: {result_text}")
+                raise ValueError(f"API返回了无效的JSON格式: {str(je)}")
+            
+            # 确保返回的是数组，如果是包含characters字段的对象，则取出characters
+            if isinstance(result_json, dict):
+                if "characters" in result_json:
+                    result = result_json["characters"]
+                else:
+                    result = result_json.get("characters", result_json)
+            else:
+                # 如果已经是列表，直接使用
+                result = result_json
+            
+            # 确保结果是列表类型
+            if not isinstance(result, list):
+                error_msg = f"分析结果不是列表格式: {type(result)}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            
+            logger.info(f"成功解析角色分析结果，共{len(result)}个角色")
+            return result
+        
         except Exception as e:
             logger.error(f"角色分析失败: {str(e)}")
+            logger.exception("角色分析过程中发生异常")
+            # 不再返回模拟数据，而是抛出异常
             raise
-
+    
     @staticmethod
     async def analyze_character_personality(text: str, character_name: str) -> Dict[str, Any]:
         """分析指定角色的性格和特点

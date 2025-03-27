@@ -20,6 +20,22 @@
               />
             </el-select>
             
+            <el-select 
+              v-model="selectedChapter" 
+              placeholder="选择章节" 
+              @change="handleChapterChange"
+              :disabled="!selectedNovel || !hasChapters"
+              clearable
+              class="chapter-select"
+            >
+              <el-option
+                v-for="chapter in chapters"
+                :key="chapter.id"
+                :label="chapter.title || `第${chapter.number}章`"
+                :value="chapter.id"
+              />
+            </el-select>
+            
             <el-button 
               type="primary" 
               @click="analyzeCharacters" 
@@ -57,9 +73,42 @@
       
       <!-- 角色列表 -->
       <div v-else class="character-list">
-        <el-row :gutter="20">
+        <!-- 章节筛选信息 -->
+        <div class="chapter-filter-info" v-if="selectedChapter">
+          <el-alert
+            title="章节筛选已启用"
+            type="info"
+            :closable="false"
+            show-icon
+          >
+            <template #default>
+              <span>
+                当前显示【{{ getChapterTitle(selectedChapter) }}】中出现的角色
+                <el-button type="text" @click="selectedChapter = null">清除筛选</el-button>
+              </span>
+            </template>
+          </el-alert>
+        </div>
+
+        <div v-if="filteredCharacters.length === 0" class="no-characters-in-chapter">
+          <el-empty description="当前章节未发现角色信息">
+            <template #description>
+              <p>当前筛选章节内未发现角色信息</p>
+              <p v-if="selectedChapter">
+                <el-button type="primary" size="small" @click="analyzeSpecificChapter(selectedChapter)">
+                  分析当前章节角色
+                </el-button>
+                <el-button type="info" size="small" @click="selectedChapter = null">
+                  查看所有角色
+                </el-button>
+              </p>
+            </template>
+          </el-empty>
+        </div>
+
+        <el-row :gutter="20" v-else>
           <el-col 
-            v-for="character in characters" 
+            v-for="character in filteredCharacters" 
             :key="character.id"
             :xs="24" 
             :sm="12" 
@@ -98,8 +147,15 @@
                   </el-tag>
                 </h3>
                 
+                <!-- 添加最早出现章节的标识 -->
+                <div class="first-appearance" v-if="character.chapter_info && character.chapter_info.length">
+                  <el-tag size="small" effect="light" type="info">
+                    首次出现: {{ getFirstAppearanceChapter(character.chapter_info) }}
+                  </el-tag>
+                </div>
+                
                 <div class="character-description">
-                  {{ truncateText(character.description, 60) || '暂无描述' }}
+                  {{ truncateText(getChapterSpecificDescription(character), 60) || '暂无描述' }}
                 </div>
                 
                 <div class="character-aliases" v-if="character.alias && character.alias.length">
@@ -115,6 +171,55 @@
                       {{ alias }}
                     </el-tag>
                     <span v-if="character.alias.length > 3">等{{ character.alias.length }}个</span>
+                  </div>
+                </div>
+                
+                <!-- 显示角色出现的章节 -->
+                <div class="character-chapters" v-if="character.chapter_info && character.chapter_info.length">
+                  <div class="chapters-label">出现章节：</div>
+                  <div class="chapter-list">
+                    <el-popover
+                      v-if="character.chapter_info.length > 3"
+                      placement="bottom"
+                      :width="200"
+                      trigger="click"
+                    >
+                      <template #reference>
+                        <el-tag size="small" effect="plain" class="chapter-tag">
+                          {{ character.chapter_info.length }}个章节 <el-icon><arrow-down /></el-icon>
+                        </el-tag>
+                      </template>
+                      <div class="chapters-popover-content">
+                        <p 
+                          v-for="(chapter, index) in sortByChapterNumber(character.chapter_info)" 
+                          :key="index"
+                          :class="{'highlight-chapter': selectedChapter && chapter.chapter_id === selectedChapter}"
+                        >
+                          {{ chapter.chapter_title }}
+                          <el-button 
+                            v-if="chapter.chapter_id !== selectedChapter" 
+                            type="text" 
+                            size="small"
+                            @click="selectedChapter = chapter.chapter_id"
+                          >
+                            筛选
+                          </el-button>
+                        </p>
+                      </div>
+                    </el-popover>
+                    <template v-else>
+                      <el-tag 
+                        v-for="(chapter, index) in sortByChapterNumber(character.chapter_info)" 
+                        :key="index"
+                        size="small" 
+                        :effect="selectedChapter && chapter.chapter_id === selectedChapter ? 'dark' : 'plain'"
+                        class="chapter-tag"
+                        @click="selectedChapter = chapter.chapter_id"
+                        style="cursor: pointer;"
+                      >
+                        {{ chapter.chapter_title }}
+                      </el-tag>
+                    </template>
                   </div>
                 </div>
                 
@@ -201,7 +306,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/store/novel'
 import { ElMessage } from 'element-plus'
@@ -214,6 +319,7 @@ const novelStore = useNovelStore()
 
 // 本地状态
 const selectedNovel = ref(null)
+const selectedChapter = ref(null)  // 新增：选择的章节
 const characters = ref([])
 const loading = ref(false)
 
@@ -223,6 +329,41 @@ const chapters = ref([])
 const startChapter = ref(null)
 const endChapter = ref(null)
 
+// 计算属性：是否有章节数据
+const hasChapters = computed(() => chapters.value && chapters.value.length > 0)
+
+// 计算属性：根据当前选择的章节过滤角色
+const filteredCharacters = computed(() => {
+  if (!selectedChapter.value) {
+    return characters.value;
+  }
+  
+  return characters.value.filter(character => 
+    character.chapter_info && 
+    character.chapter_info.some(info => info.chapter_id === selectedChapter.value)
+  );
+})
+
+// 新增：获取章节特定的角色描述
+const getChapterSpecificDescription = (character) => {
+  if (!selectedChapter.value || !character.chapter_info) {
+    return character.description;
+  }
+  
+  // 查找特定章节的数据
+  const matchingChapterInfo = character.chapter_info.find(info => 
+    info.chapter_id === selectedChapter.value
+  );
+  
+  // 如果找到了特定章节且有描述数据，使用该描述
+  if (matchingChapterInfo && matchingChapterInfo.description) {
+    return matchingChapterInfo.description;
+  }
+  
+  // 如果没有章节特定的描述，使用通用描述
+  return character.description;
+};
+
 // 处理生命周期
 onMounted(async () => {
   // 加载小说列表
@@ -230,11 +371,23 @@ onMounted(async () => {
     await novelStore.fetchNovels()
   }
   
-  // 从URL参数获取小说ID
+  // 从URL参数获取小说ID和章节ID
   const novelId = Number(route.query.novelId)
+  const chapterId = Number(route.query.chapterId)
+  
   if (novelId && !isNaN(novelId)) {
     selectedNovel.value = novelId
+    
+    // 先加载小说章节列表
+    await loadNovelChapters(novelId)
+    
+    // 再加载角色列表
     await loadCharacters(novelId)
+    
+    // 如果指定了章节，设置章节筛选
+    if (chapterId && !isNaN(chapterId)) {
+      selectedChapter.value = chapterId
+    }
   }
 })
 
@@ -291,6 +444,16 @@ async function handleNovelChange(novelId) {
   // 更新URL参数
   router.replace({
     query: { ...route.query, novelId }
+  })
+}
+
+// 章节选择变化处理
+function handleChapterChange(chapterId) {
+  selectedChapter.value = chapterId
+  
+  // 更新URL参数，保留原有参数
+  router.replace({
+    query: { ...route.query, chapterId }
   })
 }
 
@@ -362,6 +525,46 @@ async function analyzeCharactersByChapter() {
   }
 }
 
+// 分析指定章节的角色
+async function analyzeSpecificChapter(chapterId) {
+  if (!selectedNovel.value || !chapterId) return
+  
+  try {
+    loading.value = true
+    
+    // 使用API分析指定章节
+    const data = await characterApi.analyzeCharactersByChapter(
+      selectedNovel.value,
+      chapterId,
+      chapterId
+    )
+    
+    if (data && Array.isArray(data)) {
+      // 按重要性排序
+      characters.value = [...data].sort((a, b) => 
+        (b.importance || 0) - (a.importance || 0)
+      )
+      ElMessage.success(`章节角色分析完成，共发现${data.length}个角色`)
+    } else {
+      ElMessage.warning('获取到的角色列表为空')
+      characters.value = []
+    }
+  } catch (error) {
+    console.error('章节角色分析失败:', error)
+    ElMessage.error('章节角色分析失败: ' + (error.message || '未知错误'))
+  } finally {
+    loading.value = false
+  }
+}
+
+// 获取章节标题
+function getChapterTitle(chapterId) {
+  if (!chapterId || !chapters.value) return '未知章节';
+  
+  const chapter = chapters.value.find(c => c.id === chapterId);
+  return chapter ? (chapter.title || `第${chapter.number}章`) : '未知章节';
+}
+
 // 导航到小说列表
 function navigateToNovelList() {
   router.push('/novels/list')
@@ -394,6 +597,19 @@ function truncateText(text, maxLength) {
   if (!text) return text
   if (text.length <= maxLength) return text
   return text.substring(0, maxLength) + '...'
+}
+
+// 对章节进行排序
+function sortByChapterNumber(chapters) {
+  return [...chapters].sort((a, b) => a.chapter_number - b.chapter_number)
+}
+
+// 获取最早出现章节的标识（按章节号排序）
+function getFirstAppearanceChapter(appearanceInfo) {
+  if (!appearanceInfo || appearanceInfo.length === 0) return '未知'
+  // 按章节号排序并获取第一个
+  const sortedAppearances = [...appearanceInfo].sort((a, b) => a.chapter_number - b.chapter_number)
+  return sortedAppearances[0].chapter_title
 }
 </script>
 
@@ -518,6 +734,12 @@ function truncateText(text, maxLength) {
   flex: 1;
 }
 
+.first-appearance {
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: center;
+}
+
 .aliases-label {
   color: #909399;
   font-size: 12px;
@@ -532,6 +754,28 @@ function truncateText(text, maxLength) {
 }
 
 .alias-tag {
+  margin-bottom: 5px;
+}
+
+.character-chapters {
+  margin-bottom: 15px;
+  flex: 1;
+}
+
+.chapters-label {
+  color: #909399;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+
+.chapter-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+}
+
+.chapter-tag {
   margin-bottom: 5px;
 }
 
@@ -626,5 +870,23 @@ function truncateText(text, maxLength) {
   .character-list-container {
     -webkit-overflow-scrolling: touch;
   }
+}
+
+.chapter-select {
+  min-width: 180px;
+}
+
+.chapter-filter-info {
+  margin-bottom: 20px;
+}
+
+.highlight-chapter {
+  background-color: #f0f9eb;
+  padding: 5px;
+  border-radius: 4px;
+}
+
+.no-characters-in-chapter {
+  margin: 40px 0;
 }
 </style> 

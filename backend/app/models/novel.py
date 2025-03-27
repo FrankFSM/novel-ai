@@ -63,6 +63,7 @@ class Character(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     novel_id = Column(Integer, ForeignKey("novels.id"), nullable=False)
+    chapter_id = Column(Integer, ForeignKey("chapters.id"), nullable=True)  # 新增：角色在特定章节的记录
     name = Column(String(100), nullable=False, index=True)
     alias = Column(JSON, nullable=True)  # 别名列表
     description = Column(Text, nullable=True)
@@ -74,6 +75,7 @@ class Character(Base):
     
     # 关系
     novel = relationship("Novel", back_populates="characters")
+    chapter = relationship("Chapter", foreign_keys=[chapter_id])  # 新增关系：角色所属章节
     mentions = relationship("EntityMention", back_populates="character")
     from_relationships = relationship("Relationship", foreign_keys="Relationship.from_character_id", back_populates="from_character")
     to_relationships = relationship("Relationship", foreign_keys="Relationship.to_character_id", back_populates="to_character")
