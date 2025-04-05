@@ -37,13 +37,23 @@
             </el-select>
             
             <el-button 
+              type="success" 
+              @click="analyzeSpecificChapter(selectedChapter)" 
+              :disabled="!selectedNovel || !selectedChapter"
+              :loading="loading"
+              class="analyze-button"
+            >
+              分析当前章节
+            </el-button>
+            
+            <el-button 
               type="primary" 
               @click="analyzeCharacters" 
               :disabled="!selectedNovel"
               :loading="loading"
               class="analyze-button"
             >
-              分析角色
+              章节范围分析
             </el-button>
           </div>
         </div>
@@ -439,11 +449,13 @@ async function loadCharacters(novelId, forceRefresh = false) {
 
 // 小说选择变化处理
 async function handleNovelChange(novelId) {
+  selectedChapter.value = null  // 清空章节选择
+  await loadNovelChapters(novelId)  // 加载章节列表
   await loadCharacters(novelId, false)  // 不强制刷新，只获取现有角色
   
   // 更新URL参数
   router.replace({
-    query: { ...route.query, novelId }
+    query: { ...route.query, novelId, chapterId: null }
   })
 }
 

@@ -36,13 +36,21 @@ export default {
   
   // 按章节范围分析角色（新增）
   analyzeCharactersByChapter(novelId, startChapter, endChapter) {
-    return request({
-      url: `/character-analysis/novels/${novelId}/characters/analyze-by-chapter`,
-      method: 'get',
-      params: { 
-        start_chapter: startChapter,
-        end_chapter: endChapter
-      }
-    }).then(response => response.data)
+    // 如果startChapter和endChapter相同，则表示只分析单个章节
+    if (startChapter === endChapter) {
+      return request({
+        url: `/character-analysis/novels/${novelId}/chapters/${startChapter}/analyze`,
+        method: 'get'
+      }).then(response => response.data)
+    } else {
+      return request({
+        url: `/character-analysis/novels/${novelId}/characters/analyze-by-chapter`,
+        method: 'get',
+        params: { 
+          start_chapter: startChapter,
+          end_chapter: endChapter
+        }
+      }).then(response => response.data)
+    }
   }
 } 

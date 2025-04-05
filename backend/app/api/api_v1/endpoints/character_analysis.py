@@ -4,7 +4,7 @@ from typing import List
 
 from app.core.database import get_db
 from app.schemas.character_analysis import CharacterAnalysisResponse, CharacterPersonality, CharacterDetail, NovelCharactersResponse
-from app.services.character_analysis_service import analyze_novel_characters, get_character_details, analyze_character_personality, analyze_characters_by_chapter, get_novel_characters_without_analysis
+from app.services.character_analysis_service import analyze_novel_characters, get_character_details, analyze_character_personality, analyze_characters_by_chapter, get_novel_characters_without_analysis, analyze_single_chapter
 
 router = APIRouter()
 
@@ -114,4 +114,27 @@ async def get_character_personality(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"角色性格分析失败: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"角色性格分析失败: {str(e)}")
+
+@router.get("/novels/{novel_id}/chapters/{chapter_id}/analyze", response_model=List[CharacterAnalysisResponse])
+async def analyze_chapter_characters(
+    novel_id: int = Path(..., title="小说ID"),
+    chapter_id: int = Path(..., title="章节ID"),
+    db: Session = Depends(get_db)
+):
+    """
+    分析单个章节的角色
+    
+    - **novel_id**: 小说ID
+    - **chapter_id**: 章节ID
+    
+    返回：
+    - 章节中的角色列表
+    """
+    try:
+        result = await analyze_single_chapter(db, novel_id, chapter_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"章节角色分析失败: {str(e)}") 

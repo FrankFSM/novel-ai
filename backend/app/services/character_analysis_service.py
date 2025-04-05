@@ -584,4 +584,99 @@ def get_novel_characters_without_analysis(db: Session, novel_id: int) -> List[Di
             })
     
     # 返回聚合后的角色数据
-    return list(character_aggregated.values()) 
+    return list(character_aggregated.values())
+
+async def analyze_single_chapter(db: Session, novel_id: int, chapter_id: int) -> List[Dict[str, Any]]:
+    """分析单个章节的角色
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        chapter_id: 章节ID
+        
+    Returns:
+        角色分析结果列表
+    """
+    logger.info(f"开始分析单个章节的角色: novel_id={novel_id}, chapter_id={chapter_id}")
+    
+    # 获取小说
+    db_novel = novel_service.get_novel(db=db, novel_id=novel_id)
+    if not db_novel:
+        raise ValueError("小说不存在")
+    
+    # 获取章节
+    chapter = db.query(novel.Chapter).filter(
+        novel.Chapter.id == chapter_id,
+        novel.Chapter.novel_id == novel_id
+    ).first()
+    if not chapter:
+        raise ValueError("章节不存在或不属于该小说")
+    
+    # 删除该章节现有的角色记录
+    deleted = db.query(novel.Character).filter(
+        novel.Character.novel_id == novel_id,
+        novel.Character.chapter_id == chapter_id
+    ).delete()
+    logger.info(f"已删除章节现有角色数据: {deleted}条")
+    
+    # 获取章节内容
+    chapter_content = novel_service.get_chapter_content(db=db, chapter_id=chapter_id)
+    if not chapter_content:
+        raise ValueError("章节内容为空")
+    
+    # 创建章节信息字典
+    chapter_info = {
+        "title": chapter.title,
+        "number": chapter.number
+    }
+    
+    # 使用AI分析当前章节的角色
+    try:
+        logger.info(f"调用OpenAI API分析章节角色: chapter_id={chapter_id}")
+        characters_data = await OpenAIClient.analyze_characters(chapter_content, is_chapter_specific=True)
+        logger.info(f"成功获取章节角色分析结果: chapter_id={chapter_id}, 共{len(characters_data)}个角色")
+        
+        # 结果容器
+        result_characters = []
+        
+        # 为该章节创建角色记录
+        for character_data in characters_data:
+            # 创建该章节的角色记录
+            new_character = novel.Character(
+                novel_id=novel_id,
+                chapter_id=chapter_id,
+                name=character_data["name"],
+                alias=character_data.get("alias", []),
+                description=character_data.get("description", ""),
+                importance=character_data.get("importance", 1),
+                first_appearance=character_data.get("first_appearance")
+            )
+            db.add(new_character)
+            db.flush()  # 获取新生成的ID
+            
+            # 准备返回数据
+            result = {
+                "id": new_character.id,
+                "name": character_data["name"],
+                "alias": character_data.get("alias", []),
+                "description": character_data.get("description", ""),
+                "importance": character_data.get("importance", 1),
+                "first_appearance": character_data.get("first_appearance"),
+                "chapters": [chapter_id],
+                "chapter_info": [{
+                    "chapter_id": chapter_id,
+                    "chapter_title": chapter.title,
+                    "chapter_number": chapter.number,
+                    "description": character_data.get("description", "")
+                }]
+            }
+            result_characters.append(result)
+        
+        db.commit()
+        logger.info(f"单章节角色分析完成: chapter_id={chapter_id}, 共{len(result_characters)}个角色")
+        return result_characters
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"单章节角色分析失败: chapter_id={chapter_id}, error={str(e)}")
+        raise 
