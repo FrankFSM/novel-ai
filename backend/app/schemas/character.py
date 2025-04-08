@@ -24,7 +24,7 @@ class CharacterUpdate(BaseModel):
 class CharacterResponse(CharacterBase):
     """角色响应模型"""
     id: int
-    created_at: datetime
+    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     class Config:
@@ -51,7 +51,7 @@ class CharacterRelationshipUpdate(BaseModel):
 class CharacterRelationshipResponse(CharacterRelationshipBase):
     """角色关系响应模型"""
     id: int
-    created_at: datetime
+    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     class Config:

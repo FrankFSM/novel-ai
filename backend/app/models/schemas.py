@@ -19,7 +19,7 @@ class NovelCreate(NovelBase):
 
 class NovelResponse(NovelBase):
     id: int
-    created_at: datetime
+    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
 class NovelDetail(NovelResponse):

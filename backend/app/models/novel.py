@@ -89,6 +89,7 @@ class Location(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     novel_id = Column(Integer, ForeignKey("novels.id"), nullable=False)
+    chapter_id = Column(Integer, ForeignKey("chapters.id"), nullable=True)  # 新增：地点在特定章节的记录
     name = Column(String(100), nullable=False, index=True)
     description = Column(Text, nullable=True)
     parent_id = Column(Integer, ForeignKey("locations.id"), nullable=True)  # 父级地点（如华山属于五岳）
@@ -96,6 +97,7 @@ class Location(Base):
     
     # 关系
     novel = relationship("Novel", back_populates="locations")
+    chapter = relationship("Chapter", foreign_keys=[chapter_id])  # 新增关系：地点所属章节
     mentions = relationship("EntityMention", back_populates="location")
     children = relationship("Location", back_populates="parent")
     parent = relationship("Location", back_populates="children", remote_side=[id])

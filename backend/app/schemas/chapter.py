@@ -28,7 +28,7 @@ class ChapterResponse(ChapterBase):
     """章节响应模型"""
     id: int
     novel_id: int
-    created_at: datetime
+    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     class Config:

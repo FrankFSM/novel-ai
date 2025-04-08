@@ -5,8 +5,9 @@ from typing import List, Dict, Any
 from app.core.database import get_db
 from app.schemas.location_analysis import LocationAnalysisResponse, LocationSignificance, LocationDetail, NovelLocationsResponse
 from app.models.schemas import TimelineResponse
-from app.services.location_analysis_service import analyze_novel_locations, get_location_details, analyze_location_significance, analyze_all_location_events
+from app.services.location_analysis_service import analyze_novel_locations, get_location_details, analyze_location_significance, analyze_all_location_events, analyze_single_chapter, analyze_locations_by_chapter
 from app.services import analysis_service
+from app.models.novel import Location, Event
 
 router = APIRouter()
 
@@ -139,4 +140,98 @@ async def analyze_all_location_events_endpoint(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"地点事件全局分析失败: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"地点事件全局分析失败: {str(e)}")
+
+@router.get("/novels/{novel_id}/chapters/{chapter_id}/analyze", response_model=List[LocationAnalysisResponse])
+async def analyze_chapter_locations(
+    novel_id: int = Path(..., title="小说ID"),
+    chapter_id: int = Path(..., title="章节ID"),
+    db: Session = Depends(get_db)
+):
+    """
+    分析单个章节的地点
+    
+    - **novel_id**: 小说ID
+    - **chapter_id**: 章节ID
+    
+    返回：
+    - 章节中的地点列表
+    """
+    try:
+        result = await analyze_single_chapter(db, novel_id, chapter_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"章节地点分析失败: {str(e)}")
+
+@router.get("/novels/{novel_id}/chapters/{chapter_id}/locations", response_model=List[LocationAnalysisResponse])
+async def get_chapter_locations(
+    novel_id: int = Path(..., title="小说ID"),
+    chapter_id: int = Path(..., title="章节ID"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取特定章节的已有地点数据(不触发分析)
+    
+    - **novel_id**: 小说ID
+    - **chapter_id**: 章节ID
+    
+    返回：
+    - 该章节已有的地点列表
+    """
+    try:
+        # 查询数据库中已有的章节地点数据
+        locations = db.query(Location).filter(
+            Location.novel_id == novel_id,
+            Location.chapter_id == chapter_id
+        ).all()
+        
+        # 转换为响应格式
+        result = []
+        for loc in locations:
+            # 计算相关事件数量
+            events_count = db.query(Event).filter(
+                Event.location_id == loc.id
+            ).count()
+            
+            # 构建响应对象
+            location_data = {
+                "id": loc.id,
+                "name": loc.name,
+                "description": loc.description,
+                "parent_id": loc.parent_id,
+                "events_count": events_count
+            }
+            result.append(location_data)
+            
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取章节地点失败: {str(e)}")
+
+@router.get("/novels/{novel_id}/locations/analyze-by-chapter", response_model=List[LocationAnalysisResponse])
+async def analyze_locations_by_chapter_range(
+    novel_id: int = Path(..., title="小说ID"),
+    start_chapter: int = Query(..., title="起始章节ID"),
+    end_chapter: int = Query(..., title="结束章节ID"),
+    db: Session = Depends(get_db)
+):
+    """
+    分析指定章节范围内的地点
+    
+    - **novel_id**: 小说ID
+    - **start_chapter**: 起始章节ID
+    - **end_chapter**: 结束章节ID
+    
+    返回：
+    - 地点列表，包含每个地点的章节信息
+    """
+    try:
+        result = await analyze_locations_by_chapter(db, novel_id, start_chapter, end_chapter)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"章节范围地点分析失败: {str(e)}") 

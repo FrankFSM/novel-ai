@@ -583,4 +583,144 @@ async def analyze_all_location_events(db: Session, novel_id: int, force_refresh:
     except Exception as e:
         db.rollback()
         logger.error(f"地点事件全局分析失败: {str(e)}")
-        raise 
+        raise
+
+async def analyze_locations_by_chapter(db: Session, novel_id: int, start_chapter_id: int, end_chapter_id: int) -> List[Dict[str, Any]]:
+    """按章节范围分析小说中的地点
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        start_chapter_id: 起始章节ID
+        end_chapter_id: 结束章节ID
+        
+    Returns:
+        地点分析结果列表
+    """
+    logger.info(f"开始按章节范围分析地点: novel_id={novel_id}, 从章节{start_chapter_id}到{end_chapter_id}")
+    
+    # 获取小说
+    db_novel = novel_service.get_novel(db=db, novel_id=novel_id)
+    if not db_novel:
+        raise ValueError("小说不存在")
+    
+    # 获取指定范围的章节内容
+    logger.info(f"获取章节范围内的内容: novel_id={novel_id}, start_chapter={start_chapter_id}, end_chapter={end_chapter_id}")
+    content = novel_service.get_chapters_content_by_range(
+        db=db, 
+        novel_id=novel_id, 
+        start_chapter_id=start_chapter_id, 
+        end_chapter_id=end_chapter_id
+    )
+    
+    if not content:
+        raise ValueError("章节内容为空")
+    
+    # 使用AI分析地点
+    try:
+        logger.info("调用OpenAI API分析章节范围内的地点...")
+        locations_data = await OpenAIClient.extract_entities(content)
+        locations_list = locations_data.get("locations", [])
+        logger.info(f"成功获取章节范围地点分析结果，共{len(locations_list)}个地点")
+        
+        # 过滤不太可能是地点的条目
+        locations_list = filter_invalid_locations(locations_list)
+        
+        # 记录所有操作，用于调试和记录
+        created_count = 0
+        updated_count = 0
+        
+        # 保存分析结果到数据库
+        for location_data in locations_list:
+            # 检查地点是否已存在
+            existing = db.query(novel.Location).filter(
+                novel.Location.novel_id == novel_id,
+                novel.Location.name.ilike(location_data["name"].strip())
+            ).first()
+            
+            if existing:
+                # 如果已存在且没有chapter_id，则更新chapter_id为分析范围的第一个章节
+                if existing.chapter_id is None:
+                    existing.chapter_id = start_chapter_id
+                # 更新现有地点
+                logger.info(f"更新现有地点: {location_data['name']}")
+                existing.description = location_data.get("description", existing.description)
+                # 更新重要性（如果提供）
+                if "importance" in location_data and location_data["importance"]:
+                    existing.importance = location_data["importance"]
+                updated_count += 1
+            else:
+                # 创建新地点，设置chapter_id为分析范围的第一个章节
+                logger.info(f"创建新地点: {location_data['name']}")
+                new_location = novel.Location(
+                    novel_id=novel_id,
+                    name=location_data["name"],
+                    description=location_data.get("description", ""),
+                    importance=location_data.get("importance", 1),  # 默认值为1
+                    chapter_id=start_chapter_id  # 设置章节ID
+                )
+                db.add(new_location)
+                created_count += 1
+        
+        # 处理地点的父子关系
+        for location_data in locations_list:
+            if "parent" in location_data and location_data["parent"]:
+                child_location = db.query(novel.Location).filter(
+                    novel.Location.novel_id == novel_id,
+                    novel.Location.name.ilike(location_data["name"].strip())
+                ).first()
+                
+                parent_location = db.query(novel.Location).filter(
+                    novel.Location.novel_id == novel_id,
+                    novel.Location.name.ilike(location_data["parent"].strip())
+                ).first()
+                
+                if child_location and parent_location:
+                    child_location.parent_id = parent_location.id
+        
+        db.commit()
+        logger.info(f"章节范围地点分析处理完成: 创建了{created_count}个新地点，更新了{updated_count}个现有地点")
+        
+        # 返回该小说在分析章节范围内的所有地点
+        locations_query = db.query(novel.Location).filter(
+            novel.Location.novel_id == novel_id
+        )
+        
+        # 如果是单章节分析，只返回该章节的地点
+        if start_chapter_id == end_chapter_id:
+            locations_query = locations_query.filter(novel.Location.chapter_id == start_chapter_id)
+        
+        updated_locations = locations_query.all()
+        
+        return [
+            {
+                "id": location.id,
+                "name": location.name,
+                "description": location.description,
+                "parent_id": location.parent_id,
+                "chapter_id": location.chapter_id,
+                "events_count": len(location.events) if hasattr(location, "events") else 0
+            }
+            for location in updated_locations
+        ]
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"章节范围地点分析失败: {str(e)}")
+        raise
+
+async def analyze_single_chapter(db: Session, novel_id: int, chapter_id: int) -> List[Dict[str, Any]]:
+    """分析单个章节的地点
+    
+    Args:
+        db: 数据库会话
+        novel_id: 小说ID
+        chapter_id: 章节ID
+        
+    Returns:
+        地点分析结果列表
+    """
+    logger.info(f"开始分析单个章节地点: novel_id={novel_id}, chapter_id={chapter_id}")
+    
+    # 直接调用章节范围分析函数，起始和结束章节设为同一个
+    return await analyze_locations_by_chapter(db, novel_id, chapter_id, chapter_id) 

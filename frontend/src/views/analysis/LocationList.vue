@@ -22,6 +22,33 @@
               />
             </el-select>
             
+            <el-select 
+              v-model="selectedChapter" 
+              placeholder="选择章节" 
+              @change="handleChapterChange"
+              :disabled="!selectedNovel || !hasChapters"
+              clearable
+              class="chapter-select"
+            >
+              <el-option
+                v-for="chapter in chapters"
+                :key="chapter.id"
+                :label="chapter.title || `第${chapter.number}章`"
+                :value="chapter.id"
+              />
+            </el-select>
+            
+            <el-button 
+              type="success" 
+              @click="analyzeSpecificChapter(selectedChapter)" 
+              :disabled="!selectedNovel || !selectedChapter"
+              :loading="loading"
+              class="analyze-button"
+            >
+              <el-icon><Position /></el-icon>
+              分析当前章节
+            </el-button>
+            
             <el-button 
               type="primary" 
               @click="analyzeLocations" 
@@ -30,7 +57,7 @@
               class="analyze-button"
             >
               <el-icon><Search /></el-icon>
-              分析地点
+              分析全书地点
             </el-button>
             
             <el-button 
@@ -55,25 +82,71 @@
         <el-button type="primary" @click="navigateToNovelList">浏览小说列表</el-button>
       </el-empty>
       
+      <!-- 选择了小说但还未分析的提示 -->
+      <el-empty 
+        v-else-if="locations.length === 0 && !loading" 
+        description="请选择分析方式"
+      >
+        <template #description>
+          <p>您可以:</p>
+          <p>1. 选择章节后点击"分析当前章节"按钮分析特定章节</p>
+          <p>2. 直接点击"分析全书地点"按钮分析整本小说的地点</p>
+        </template>
+        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: center;">
+          <el-button type="success" :disabled="!selectedChapter" @click="analyzeSpecificChapter(selectedChapter)">
+            分析当前章节
+          </el-button>
+          <el-button type="primary" @click="analyzeLocations">
+            分析全书地点
+          </el-button>
+        </div>
+      </el-empty>
+      
       <!-- 加载中状态 -->
       <div v-else-if="loading" class="loading-container">
         <el-skeleton :rows="5" animated />
         <div class="loading-text">正在分析小说地点...</div>
       </div>
       
-      <!-- 地点列表为空的提示 -->
-      <el-empty 
-        v-else-if="locations.length === 0" 
-        description="暂无地点数据，点击上方按钮分析地点"
-      >
-        <el-button type="primary" @click="analyzeLocations">分析地点</el-button>
-      </el-empty>
-      
       <!-- 地点列表 -->
       <div v-else class="location-list">
-        <el-row :gutter="20">
+        <!-- 章节筛选信息 -->
+        <div class="chapter-filter-info" v-if="selectedChapter">
+          <el-alert
+            title="章节筛选已启用"
+            type="info"
+            :closable="false"
+            show-icon
+          >
+            <template #default>
+              <span>
+                当前显示【{{ getChapterTitle(selectedChapter) }}】中的地点
+                <el-button type="text" @click="selectedChapter = null">清除筛选</el-button>
+              </span>
+            </template>
+          </el-alert>
+        </div>
+
+        <div v-if="filteredLocations.length === 0" class="no-locations-in-chapter">
+          <el-empty :description="selectedChapter ? `在【${getChapterTitle(selectedChapter)}】中未发现地点` : '未找到地点信息'">
+            <template #description>
+              <p v-if="selectedChapter">在【{{ getChapterTitle(selectedChapter) }}】中未发现地点</p>
+              <p v-else>未找到地点信息</p>
+              <p v-if="selectedChapter">
+                <el-button type="primary" size="small" @click="analyzeSpecificChapter(selectedChapter)">
+                  分析当前章节地点
+                </el-button>
+                <el-button type="info" size="small" @click="selectedChapter = null">
+                  查看所有地点
+                </el-button>
+              </p>
+            </template>
+          </el-empty>
+        </div>
+
+        <el-row :gutter="20" v-else>
           <el-col 
-            v-for="location in locations" 
+            v-for="location in filteredLocations" 
             :key="location.id"
             :xs="24" 
             :sm="12" 
@@ -155,12 +228,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/store/novel'
 import { ElMessage } from 'element-plus'
-import { locationApi } from '@/api'
-import { Search, DataAnalysis } from '@element-plus/icons-vue'
+import { locationApi, novelApi } from '@/api'
+import { Search, DataAnalysis, Position } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -171,6 +244,21 @@ const selectedNovel = ref(null)
 const locations = ref([])
 const loading = ref(false)
 const eventAnalysisLoading = ref(false)
+const selectedChapter = ref(null)
+const chapters = ref([])
+const hasChapters = ref(true)
+
+// 计算属性：根据章节筛选地点
+const filteredLocations = computed(() => {
+  if (!locations.value.length) return []
+  
+  // 如果未选择章节，显示所有地点
+  if (!selectedChapter.value) return locations.value
+  
+  // 当通过analyzeSpecificChapter分析特定章节时，API返回的结果已经是该章节的地点
+  // 此时直接返回locations即可，因为API已经做了筛选
+  return locations.value
+})
 
 // 处理生命周期
 onMounted(async () => {
@@ -179,11 +267,46 @@ onMounted(async () => {
     await novelStore.fetchNovels()
   }
   
-  // 从URL参数获取小说ID
+  // 从URL参数获取小说ID和章节ID
   const novelId = Number(route.query.novelId)
+  const chapterId = Number(route.query.chapterId) || null
+  
   if (novelId && !isNaN(novelId)) {
     selectedNovel.value = novelId
-    await loadLocations(novelId)
+    
+    // 先加载章节列表
+    await loadNovelChapters(novelId)
+    
+    // 如果提供了章节ID，设置选中章节并尝试从数据库获取数据
+    if (chapterId && !isNaN(chapterId)) {
+      selectedChapter.value = chapterId
+      
+      // 尝试从数据库获取现有数据
+      loading.value = true
+      
+      try {
+        const data = await locationApi.getChapterLocations(novelId, chapterId)
+        
+        if (data && Array.isArray(data) && data.length > 0) {
+          // 数据库中有数据，直接显示
+          locations.value = [...data].sort((a, b) => 
+            (b.events_count || 0) - (a.events_count || 0)
+          )
+          ElMessage.success(`已加载【${getChapterTitle(chapterId)}】章节的${data.length}个地点`)
+        } else {
+          // 数据库中无数据，提示用户分析
+          ElMessage.info('该章节未找到地点数据，请点击"分析当前章节"按钮进行分析')
+        }
+      } catch (error) {
+        console.error('获取章节地点数据失败:', error)
+        ElMessage.warning('无法获取该章节地点数据，您可以点击"分析当前章节"按钮重新分析')
+      } finally {
+        loading.value = false
+      }
+    } else {
+      // 显示提示信息
+      ElMessage.info('请选择章节并点击"分析当前章节"按钮，或点击"分析全书地点"按钮分析所有地点')
+    }
   }
 })
 
@@ -200,18 +323,22 @@ async function loadLocations(novelId, forceRefresh = false) {
     console.log('地点分析API响应:', data)
     
     if (data && Array.isArray(data)) {
-      // 按事件数量排序
+      // 以重要性排序
       locations.value = [...data].sort((a, b) => 
         (b.events_count || 0) - (a.events_count || 0)
       )
-      ElMessage.success(`成功加载小说地点，共发现${data.length}个地点`)
+      if (!forceRefresh) {
+        ElMessage.success(`成功加载${data.length}个地点`)
+      } else {
+        ElMessage.success(`地点分析完成，共发现${data.length}个地点`)
+      }
     } else {
       ElMessage.warning('获取到的地点列表为空')
       locations.value = []
     }
-  } catch (error) {
-    console.error('获取地点列表失败:', error)
-    ElMessage.error('获取地点列表失败: ' + (error.message || '未知错误'))
+  } catch (err) {
+    console.error('获取地点列表失败:', err)
+    ElMessage.error('获取地点列表失败: ' + (err.message || '未知错误'))
     locations.value = []
   } finally {
     loading.value = false
@@ -220,12 +347,90 @@ async function loadLocations(novelId, forceRefresh = false) {
 
 // 小说选择变化处理
 async function handleNovelChange(novelId) {
-  await loadLocations(novelId)
+  if (!novelId) return
   
-  // 更新URL参数
+  try {
+    selectedChapter.value = null // 清空章节选择
+    locations.value = [] // 清空地点列表
+    await loadNovelChapters(novelId) // 加载章节列表
+    
+    // 不再自动分析地点，只更新URL参数
+    router.replace({
+      query: { ...route.query, novelId, chapterId: null }
+    })
+    
+    // 显示提示信息
+    ElMessage.info('请选择章节并点击"分析当前章节"按钮，或点击"分析全书地点"按钮分析所有地点')
+  } catch (err) {
+    console.error('处理小说选择变化失败:', err)
+    ElMessage.error('加载小说信息失败: ' + (err.message || '未知错误'))
+  }
+}
+
+// 章节选择变化处理
+async function handleChapterChange(chapterId) {
+  if (!selectedNovel.value) return
+  
+  selectedChapter.value = chapterId
+  
+  // 更新URL参数，保留原有参数
   router.replace({
-    query: { ...route.query, novelId }
+    query: { ...route.query, chapterId }
   })
+  
+  if (chapterId) {
+    // 先尝试从数据库获取现有数据
+    loading.value = true
+    locations.value = []
+    
+    try {
+      const data = await locationApi.getChapterLocations(selectedNovel.value, chapterId)
+      
+      if (data && Array.isArray(data) && data.length > 0) {
+        // 数据库中有数据，直接显示
+        locations.value = [...data].sort((a, b) => 
+          (b.events_count || 0) - (a.events_count || 0)
+        )
+        ElMessage.success(`已加载【${getChapterTitle(chapterId)}】章节的${data.length}个地点`)
+      } else {
+        // 数据库中无数据，提示用户分析
+        ElMessage.info('该章节未找到地点数据，请点击"分析当前章节"按钮进行分析')
+      }
+    } catch (error) {
+      console.error('获取章节地点数据失败:', error)
+      ElMessage.warning('无法获取该章节地点数据，您可以点击"分析当前章节"按钮重新分析')
+    } finally {
+      loading.value = false
+    }
+  } else {
+    // 如果清除了章节选择，清空地点列表
+    locations.value = []
+    ElMessage.info('请选择章节或点击"分析全书地点"按钮')
+  }
+}
+
+// 获取小说章节列表
+async function loadNovelChapters(novelId) {
+  try {
+    loading.value = true
+    const response = await novelApi.getNovelChapters(novelId)
+    console.log('获取章节列表响应:', response)
+    
+    if (response && response.data) {
+      chapters.value = response.data || []
+      hasChapters.value = chapters.value.length > 0
+    } else {
+      chapters.value = []
+      hasChapters.value = false
+    }
+  } catch (error) {
+    console.error('获取章节列表失败:', error)
+    chapters.value = []
+    hasChapters.value = false
+    throw error
+  } finally {
+    loading.value = false
+  }
 }
 
 // 手动分析地点按钮处理
@@ -233,9 +438,20 @@ async function analyzeLocations() {
   if (!selectedNovel.value) return
   
   try {
+    // 清空章节选择
+    selectedChapter.value = null
+    
+    // 更新URL参数
+    router.replace({
+      query: { ...route.query, chapterId: null }
+    })
+    
+    // 调用API分析全书地点
     await loadLocations(selectedNovel.value, true) // 强制刷新
+    
+    ElMessage.success('分析全书地点成功，您可以选择特定章节查看该章节的地点')
   } catch (error) {
-    ElMessage.error('分析地点失败')
+    ElMessage.error('分析地点失败: ' + (error.message || '未知错误'))
   }
 }
 
@@ -253,6 +469,42 @@ async function analyzeAllEvents() {
     ElMessage.error('分析所有地点事件失败: ' + (error.message || '未知错误'))
   } finally {
     eventAnalysisLoading.value = false
+  }
+}
+
+// 分析特定章节
+async function analyzeSpecificChapter(chapterId) {
+  if (!selectedNovel.value || !chapterId) return
+  
+  try {
+    locations.value = []
+    loading.value = true
+    
+    // 调用API分析特定章节的地点
+    const data = await locationApi.analyzeLocationsByChapter(
+      selectedNovel.value,
+      chapterId,
+      chapterId
+    )
+    
+    console.log('章节地点分析API响应:', data)
+    
+    if (data && Array.isArray(data)) {
+      // 以重要性排序
+      locations.value = [...data].sort((a, b) => 
+        (b.events_count || 0) - (a.events_count || 0)
+      )
+      ElMessage.success(`章节地点分析完成，共发现${data.length}个地点`)
+    } else {
+      ElMessage.warning('获取到的地点列表为空')
+      locations.value = []
+    }
+  } catch (error) {
+    console.error('章节地点分析失败:', error)
+    ElMessage.error('章节地点分析失败: ' + (error.message || '未知错误'))
+    locations.value = []
+  } finally {
+    loading.value = false
   }
 }
 
@@ -321,46 +573,39 @@ function truncateText(text, maxLength) {
   if (text.length <= maxLength) return text
   return text.substring(0, maxLength) + '...'
 }
+
+// 获取章节标题
+function getChapterTitle(chapterId) {
+  const chapter = chapters.value.find(c => c.id === chapterId)
+  return chapter ? chapter.title : `第${chapterId}章`
+}
 </script>
 
 <style scoped>
 .location-list-container {
-  min-height: 100%;
-  height: auto;
   width: 100%;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  position: relative;
+  margin: 0 auto;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 15px;
-  margin-bottom: 15px;
-  position: sticky;
-  top: 0;
-  background-color: white;
-  z-index: 10;
-  padding: 10px 0;
+  margin-bottom: 20px;
 }
 
-.page-header h2 {
-  margin: 0;
-}
-
-.header-actions {
+.header-right {
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
   align-items: center;
+  gap: 10px;
 }
 
 .full-width-select {
-  min-width: 180px;
+  width: 200px;
+}
+
+.chapter-select {
+  width: 200px;
 }
 
 .analyze-button {
@@ -368,185 +613,74 @@ function truncateText(text, maxLength) {
 }
 
 .loading-container {
-  padding: 20px 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 200px;
+  padding: 20px;
+  text-align: center;
 }
 
 .loading-text {
-  text-align: center;
   margin-top: 20px;
   color: #909399;
 }
 
-.location-list {
-  margin-top: 20px;
-  overflow: visible;
-  padding-bottom: 30px;
+.location-card {
+  margin-bottom: 15px;
+  border-radius: 8px;
+  height: 100%;
+  transition: all 0.3s;
+}
+
+.location-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
 }
 
 .location-col {
   margin-bottom: 20px;
 }
 
-.location-card {
-  height: 100%;
-  transition: transform 0.3s;
-  display: flex;
-  flex-direction: column;
-}
-
-.location-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-}
-
 .location-icon {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 10px;
-  padding-top: 15px;
-}
-
-.location-info {
   text-align: center;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 0 10px 10px;
+  margin-bottom: 10px;
 }
 
 .location-name {
-  margin: 10px 0;
+  font-size: 1.1rem;
+  margin-top: 0;
+  margin-bottom: 10px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 5px;
 }
 
 .location-description {
   color: #606266;
   margin-bottom: 10px;
-  min-height: 60px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  font-size: 0.9rem;
 }
 
 .location-events {
-  margin-bottom: 15px;
-  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
 }
 
 .events-label {
-  color: #909399;
-  font-size: 12px;
-  margin-bottom: 5px;
-}
-
-.event-count {
-  display: flex;
-  justify-content: center;
-  gap: 5px;
-  margin-bottom: 5px;
+  color: #606266;
 }
 
 .location-actions {
   display: flex;
-  justify-content: center;
   gap: 10px;
-  margin-top: 15px;
-  flex-wrap: wrap;
 }
 
-/* 确保内容在所有设备上都可滚动 */
-:deep(.el-card__body) {
-  overflow-y: visible;
-  height: auto;
+.chapter-filter-info {
+  margin-bottom: 15px;
 }
 
-:deep(.el-card) {
-  overflow: visible;
-}
-
-/* 针对滚动条的样式 */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #c0c4cc;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #909399;
-}
-
-@media (max-width: 768px) {
-  .page-header {
-    flex-direction: column;
-    align-items: flex-start;
-    width: 100%;
-  }
-  
-  .header-actions {
-    flex-direction: column;
-    width: 100%;
-    gap: 15px;
-    margin-top: 10px;
-  }
-  
-  .full-width-select {
-    width: 100%;
-  }
-  
-  .analyze-button {
-    width: 100%;
-    margin-left: 0 !important;
-  }
-  
-  .location-actions {
-    flex-direction: column;
-    width: 100%;
-  }
-  
-  .location-actions .el-button {
-    margin-right: 0;
-    margin-bottom: 8px;
-    width: 100%;
-  }
-  
-  .location-card {
-    margin-bottom: 10px;
-  }
-  
-  .location-icon {
-    padding-top: 10px;
-  }
-  
-  :deep(.el-empty__image) {
-    width: 120px !important;
-    height: 120px !important;
-  }
-}
-
-/* 触摸设备滚动优化 */
-@media (pointer: coarse) {
-  .location-list-container {
-    -webkit-overflow-scrolling: touch;
-  }
+.no-locations-in-chapter {
+  margin: 40px 0;
+  text-align: center;
 }
 </style> 
